@@ -51,15 +51,18 @@ const ServiceItemManager = () => {
     imgItems: [],
     service_ajwain: ''
   });
-  const [existingMedia, setExistingMedia] = useState({ 
-    imageIds: [], 
-    images: [], 
+  const [existingMedia, setExistingMedia] = useState({
+    imageIds: [],
+    images: [],
     imagesToDelete: []
   });
   // New: manage separate forms and Arabic linking to English via documentId
-  const [formLanguage, setFormLanguage] = useState('en'); // 'en' | 'ar'
+  
+  const [formLanguage, setFormLanguage] = useState(language); // 'en' | 'ar'
   const [englishItemsForDropdown, setEnglishItemsForDropdown] = useState([]); // {documentId, id, title}
   const [selectedEnglishDocumentId, setSelectedEnglishDocumentId] = useState('');
+  // في أعلى الـ component
+const [editingItemId, setEditingItemId] = useState(null);
 
   // دالة محسنة لجلب التوكن مع التحقق من الصلاحية
   const getValidToken = () => {
@@ -79,7 +82,7 @@ const ServiceItemManager = () => {
         toast.error(t('auth_error') || 'Authentication failed. Please login again.');
         throw new Error('Authentication failed');
       }
-      
+
       const errorText = await response.text();
       console.error(`Server error: ${response.status}`, errorText);
       throw new Error(`Server error: ${response.status}`);
@@ -88,57 +91,59 @@ const ServiceItemManager = () => {
   };
 
   // دالة محسنة لجلب عناصر الخدمة
-const loadServiceItems = async () => {
-  // استخدم لغة افتراضية لو اللغة مش معرفة
-  let lang = language || 'en';
-  
-  // لو اللغة عربية استخدم SA-ar
-  if (lang === 'ar') {
-    lang = 'SA-ar';
-  }
+  const loadServiceItems = async () => {
+    // استخدم لغة افتراضية لو اللغة مش معرفة
+    let lang = language || 'en';
 
-  console.log("🌍 Current language:", lang);
-
-  try {
-    // استخدم URL كامل وصحيح
-    const response = await fetch(
-      `http://localhost:1337/api/service-items?populate=*&locale=${lang}`
-    );
-    console.log("response", response);
-
-    // تحقق من استجابة السيرفر
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // لو اللغة عربية استخدم SA-ar
+    if (lang === 'ar') {
+      lang = 'ar-SA';
     }
 
-    const data = await response.json();
-    console.log("📦 Fetched service items:", data);
-
-    const formatted = data.data.map(item => {
-      const attrs = item.attributes || item;
-      return {
-        id: item.id,
-        documentId: attrs.documentId,
-        title: attrs.title, // سيكون حسب locale الحالي
-        description: attrs.description,
-        locale: attrs.locale,
-        imgItems: normalizeImages(attrs.imgItems)
-      };
-    });
-
-    setServiceItems(formatted);
-  } catch (err) {
-    console.error("Error loading service items:", err);
-    toast.error("Error loading items");
-  }
-};
+    console.log("🌍 Current language:", lang);
+     
 
 
+    try {
+      // استخدم URL كامل وصحيح
+      const response = await fetch(
+        `http://localhost:1337/api/service-items?populate=*&locale=${lang}`
+      );
+      console.log("response", response);
+
+      // تحقق من استجابة السيرفر
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("📦 Fetched service items:", data);
+
+      const formatted = data.data.map(item => {
+        const attrs = item.attributes || item;
+        return {
+          id: item.id,
+          documentId: attrs.documentId,
+          title: attrs.title, // سيكون حسب locale الحالي
+          description: attrs.description,
+          locale: attrs.locale,
+          imgItems: normalizeImages(attrs.imgItems)
+        };
+      });
+
+      setServiceItems(formatted);
+    } catch (err) {
+      console.error("Error loading service items:", err);
+      toast.error("Error loading items");
+    }
+  };
 
 
 
-  useEffect(() => { 
-    loadServiceItems(); 
+
+
+  useEffect(() => {
+    loadServiceItems();
   }, [language]);
 
   const filteredServiceItems = serviceItems.filter(item =>
@@ -148,64 +153,66 @@ const loadServiceItems = async () => {
   );
 
   // New: start add flow with specific language
- const startAddServiceItem = async (lang) => {
-  setEditingServiceItem(null);
-  setFormLanguage(lang);
-  setFormData({
-    title_en: '',
-    title_ar: '',
-    description_en: '',
-    description_ar: '',
-    imgItems: [],
-    service_ajwain: ''
-  });
-  setExistingMedia({ imageIds: [], images: [], imagesToDelete: [] });
-  setSelectedEnglishDocumentId('');
-
-  if (lang === 'ar') {
-  try {
-    const response = await fetch(
-      `${API_BASE}/api/service-items?locale=en&populate=imgItems`,
-      {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-      }
-    );
-    const data = await response.json();
-
-    console.log("📌 English Items Response:", data);
-
-    setEnglishItemsForDropdown(data.data || []);
-  } catch (error) {
-    console.error("Error loading English items:", error);
-  }
-}
-
-
-  setShowForm(true);
-};
-const handleEnglishItemSelect = (docId) => {
-  setSelectedEnglishDocumentId(docId);
-
-  const selectedItem = serviceItems.find(
-    (item) => item.documentId === docId
-  );
-
-  if (selectedItem) {
-    const images = normalizeImages(selectedItem.imgItems);
-    setExistingMedia({
-      imageIds: images.map((img) => img.id),
-      images,
-      imagesToDelete: [],
+  const startAddServiceItem = async (lang) => {
+    setEditingServiceItem(null);
+    setFormLanguage(lang);
+    console.log("setFormLanguage",setFormLanguage(lang));
+    
+    setFormData({
+      title_en: '',
+      title_ar: '',
+      description_en: '',
+      description_ar: '',
+      imgItems: [],
+      service_ajwain: ''
     });
-  }
-};
+    setExistingMedia({ imageIds: [], images: [], imagesToDelete: [] });
+    setSelectedEnglishDocumentId('');
+
+    if (lang === 'ar') {
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/service-items?locale=en&populate=imgItems`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token')}`,
+            },
+          }
+        );
+        const data = await response.json();
+
+        console.log("📌 English Items Response:", data);
+
+        setEnglishItemsForDropdown(data.data || []);
+      } catch (error) {
+        console.error("Error loading English items:", error);
+      }
+    }
+
+
+    setShowForm(true);
+  };
+  const handleEnglishItemSelect = (docId) => {
+    setSelectedEnglishDocumentId(docId);
+
+    const selectedItem = serviceItems.find(
+      (item) => item.documentId === docId
+    );
+
+    if (selectedItem) {
+      const images = normalizeImages(selectedItem.imgItems);
+      setExistingMedia({
+        imageIds: images.map((img) => img.id),
+        images,
+        imagesToDelete: [],
+      });
+    }
+  };
 
 
 
   console.log();
-  
+
 
   // New: load English items for Arabic linking
   const loadEnglishItemsForDropdown = async () => {
@@ -235,13 +242,13 @@ const handleEnglishItemSelect = (docId) => {
     setEditingServiceItem(item);
     const imagesArray = Array.isArray(item.imgItems) ? item.imgItems : (item.imgItems?.data || []);
     const imageIds = imagesArray.map(i => i.id).filter(Boolean);
-    
-    setExistingMedia({ 
-      imageIds, 
-      images: imagesArray, 
+
+    setExistingMedia({
+      imageIds,
+      images: imagesArray,
       imagesToDelete: []
     });
-    
+
     setFormData({
       title_en: item.title || '',
       title_ar: item.title || '',
@@ -276,301 +283,403 @@ const handleEnglishItemSelect = (docId) => {
     }));
   };
 
-  const handleSaveServiceItem = async () => {
+
+  
+
+
+
+const handleSaveServiceItem = async () => {
   if (isSaving) return;
   setIsSaving(true);
 
   try {
     const TOKEN = getValidToken();
+    if (!TOKEN) throw new Error("❌ Authentication token missing");
 
-    // ✅ تحقق من العنوان
-    if (formLanguage === 'en') {
-      if (!formData.title_en.trim()) {
-        toast.error(t('title_required') || 'Title is required');
+    // ✅ تحقق من البيانات المطلوبة
+    if (formLanguage === "en") {
+      if (!formData.title_en?.trim() || !formData.description_en?.trim()) {
+        toast.error("⚠️ لازم تكتب عنوان ووصف بالإنجليزي");
         setIsSaving(false);
         return;
       }
-    } else {
-      if (!formData.title_ar.trim()) {
-        toast.error(t('title_required') || 'Title is required');
+    } else if (formLanguage === "ar") {
+      if (!formData.title_ar?.trim() || !formData.description_ar?.trim()) {
+        toast.error("⚠️ لازم تكتب عنوان ووصف بالعربي");
         setIsSaving(false);
         return;
       }
-      if (!selectedEnglishDocumentId) {
-        toast.error(t('select_english_item') || 'Please select an English item to link');
+      if (!editingServiceItem && !selectedEnglishDocumentId) {
+        toast.error("⚠️ لازم تختار العنصر الإنجليزي اللي هتربط الترجمة بيه");
         setIsSaving(false);
         return;
       }
     }
 
-    // ✅ رفع الصور الجديدة فقط
+    // ✅ رفع الصور الجديدة
     let uploadedFiles = [];
     if (formData.imgItems && formData.imgItems.length > 0) {
-      try {
-        const uploadFormData = new FormData();
-
-        formData.imgItems.forEach(file => {
-  if (file instanceof File) {
-    uploadFormData.append('files', file);
-  }
-        });
-
-        if ([...uploadFormData].length > 0) {
-          const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${TOKEN}`
-            },
-            body: uploadFormData,
-          });
-
-          await checkResponse(uploadResponse);
-          uploadedFiles = await uploadResponse.json();
+      const uploadFormData = new FormData();
+      formData.imgItems.forEach((file) => {
+        if (file instanceof File) {
+          uploadFormData.append("files", file);
         }
-      } catch (uploadError) {
-        console.error('Error uploading files:', uploadError);
-        toast.error(t('upload_error') || 'Error uploading images');
-        setIsSaving(false);
-        return;
-      }
-    }
-
-    let itemId = editingServiceItem?.documentId || editingServiceItem?.id || null;
-
-    if (formLanguage === 'en') {
-      // ✅ حفظ الإنجليزية
-      const finalDataEn = {
-        data: {
-          title: formData.title_en,
-          description: formData.description_en
-        }
-      };
-
-      if (uploadedFiles.length > 0) {
-        finalDataEn.data.imgItems = uploadedFiles.map(f => f.id);
-      }
-
-      if (formData.service_ajwain) {
-        const serviceId = parseInt(formData.service_ajwain);
-        if (!isNaN(serviceId)) finalDataEn.data.service_ajwain = serviceId;
-      }
-
-      if (editingServiceItem) {
-        const remainingImages = existingMedia.images
-          .filter(img => !existingMedia.imagesToDelete.includes(img.id))
-          .map(img => img.id);
-
-        if (remainingImages.length > 0) {
-          finalDataEn.data.imgItems = [...(finalDataEn.data.imgItems || []), ...remainingImages];
-        }
-      }
-
-      let apiEndpoint = `${API_BASE}/api/service-items`;
-      let method = 'POST';
-      if (editingServiceItem) {
-        apiEndpoint = `${API_BASE}/api/service-items/${itemId}`;
-        method = 'PUT';
-      }
-
-      const enResp = await fetch(apiEndpoint, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
-        body: JSON.stringify(finalDataEn)
       });
-      await checkResponse(enResp);
 
-    } else {
-      // ✅ حفظ العربية (update على الوثيقة الإنجليزية)
-    
-const finalDataAr = {
-  data: {
-    title: formData.title_ar,
-    description: formData.description_ar
-  }
-};
-
-// ✅ لو فيه صور جديدة مرفوعة
-if (uploadedFiles.length > 0) {
-  finalDataAr.data.imgItems = uploadedFiles.map(f => f.id);
-}
-
-// ✅ fallback: لو مفيش صور جديدة، ابعتي الصور الموجودة من النسخة الإنجليزي
-if ((!finalDataAr.data.imgItems || finalDataAr.data.imgItems.length === 0)) {
-  const englishImages = editingServiceItem?.imgItems || []; // الصور الموجودة بالانجليزي
-  if (englishImages.length > 0) {
-    finalDataAr.data.imgItems = englishImages.map(img => img.id);
-  }
-}
-
-// ✅ الخدمة
-if (formData.service_ajwain) {
-  const serviceId = parseInt(formData.service_ajwain);
-  if (!isNaN(serviceId)) finalDataAr.data.service_ajwain = serviceId;
-}
-
-const targetDocId = selectedEnglishDocumentId || itemId
-     const arResp = await fetch(`${API_BASE}/api/service-items/${targetDocId}?locale=ar-SA`, {
-  method: 'PUT',
-  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
-  body: JSON.stringify(finalDataAr)
-});
-
-      await checkResponse(arResp);
-    }
-
-    // ✅ حذف الصور المحددة
-    if (existingMedia.imagesToDelete.length > 0) {
-      try {
-        await Promise.all(
-          existingMedia.imagesToDelete.map(async (imageId) => {
-            try {
-              const deleteResponse = await fetch(`${API_BASE}/api/upload/files/${imageId}`, {
-                method: 'DELETE',
-                headers: {
-                  'Authorization': `Bearer ${TOKEN}`
-                }
-              });
-              if (!deleteResponse.ok) {
-                console.warn(`Failed to delete image ${imageId}, it might be in use elsewhere`);
-              }
-            } catch (deleteError) {
-              console.warn(`Error deleting image ${imageId}:`, deleteError);
-            }
-          })
-        );
-      } catch (error) {
-        console.warn('Error deleting images, they might be in use:', error);
+      if ([...uploadFormData].length > 0) {
+        const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${TOKEN}` },
+          body: uploadFormData,
+        });
+        await checkResponse(uploadResponse);
+        uploadedFiles = await uploadResponse.json();
       }
     }
 
-    await loadServiceItems();
+    // ----------------- ✅ CREATE -----------------
+    if (!editingServiceItem) {
+      if (formLanguage === "en") {
+        const finalDataEn = {
+          data: {
+            title: formData.title_en,
+            description: formData.description_en,
+            locale: "en",
+          },
+        };
+        if (uploadedFiles.length > 0) {
+          finalDataEn.data.imgItems = uploadedFiles.map((f) => f.id);
+        }
+        if (formData.service_ajwain) {
+          const serviceId = parseInt(formData.service_ajwain);
+          if (!isNaN(serviceId)) finalDataEn.data.service_ajwain = serviceId;
+        }
 
+        const enResp = await fetch(`${API_BASE}/api/service-items?locale=en`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify(finalDataEn),
+        });
+        await checkResponse(enResp);
+      } else {
+        const finalDataAr = {
+          data: {
+            title: formData.title_ar,
+            description: formData.description_ar,
+          },
+        };
+        if (uploadedFiles.length > 0) {
+          finalDataAr.data.imgItems = uploadedFiles.map((f) => f.id);
+        }
+        if (formData.service_ajwain) {
+          const serviceId = parseInt(formData.service_ajwain);
+          if (!isNaN(serviceId)) finalDataAr.data.service_ajwain = serviceId;
+        }
+
+        const arResp = await fetch(
+          `${API_BASE}/api/service-items/${selectedEnglishDocumentId}?locale=ar-SA`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${TOKEN}`,
+            },
+            body: JSON.stringify(finalDataAr),
+          }
+        );
+        await checkResponse(arResp);
+      }
+    }
+
+    // ----------------- ✅ UPDATE -----------------
+    // else {
+    //   const updateServiceItem = async (documentId, locale, data) => {
+
+      
+    //     if (!documentId) throw new Error("❌ documentId مفقود");
+    //     console.log("Updating documentId:", documentId, "with locale:", locale, "and data:", data);
+
+    //     // حذف أي حقول undefined قبل الإرسال
+    //     const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
+
+    //     const response = await fetch(
+    //       `${API_BASE}/api/service-items/${documentId}?locale=${locale}`,
+    //       {
+    //         method: "PUT",
+    //         headers: {
+    //           "Content-Type": "application/json",
+    //           Authorization: `Bearer ${TOKEN}`,
+    //         },
+    //         body: JSON.stringify({ data: cleanData }),
+    //       }
+    //     );
+    //     await checkResponse(response);
+    //     return await response.json();
+    //   };
+
+    //   // دالة للحصول على imgItems النهائي بعد الحذف والرفع الجديد
+    //   const getFinalImgItems = (existingImages) => {
+    //     const keptImages = existingImages
+    //       .filter(img => !existingMedia.imagesToDelete.includes(img.id))
+    //       .map(img => img.id);
+    //     const newImages = uploadedFiles.map(f => f.id);
+    //     return [...keptImages, ...newImages];
+    //   };
+
+    //   if (editingServiceItem?.locale === "en") {
+    //     const finalDataEn = {
+    //       title: formData.title_en,
+    //       description: formData.description_en,
+    //       imgItems: getFinalImgItems(editingServiceItem.imgItems || []),
+    //     };
+    //     if (formData.service_ajwain) finalDataEn.service_ajwain = parseInt(formData.service_ajwain);
+
+    //     await updateServiceItem(editingServiceItem.documentId, "en", finalDataEn);
+    //   } else {
+    //     const arabicVersion = editingServiceItem?.localizations?.find(
+    //       (loc) => loc.locale === "ar-SA"
+    //     );
+    //     const targetDocId = arabicVersion?.documentId || editingServiceItem.documentId;
+
+    //     const existingImgs = arabicVersion?.imgItems || editingServiceItem?.imgItems || [];
+    //     const finalDataAr = {
+    //       title: formData.title_ar,
+    //       description: formData.description_ar,
+    //       imgItems: getFinalImgItems(existingImgs),
+    //     };
+    //     if (formData.service_ajwain) finalDataAr.service_ajwain = parseInt(formData.service_ajwain);
+
+    //     await updateServiceItem(targetDocId, "ar-SA", finalDataAr);
+    //   }
+    // }
+
+    // ----------------- ✅ UPDATE -----------------
+// ----------------- ✅ UPDATE -----------------
+else {
+  const updateServiceItem = async (itemId, locale, data) => {
+    if (!itemId) throw new Error("❌ itemId مفقود");
+    console.log("Updating itemId:", itemId, "with locale:", locale, "and data:", data);
+
+    // حذف أي حقول undefined قبل الإرسال
+    const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
+
+    const response = await fetch(
+      `${API_BASE}/api/service-items/${itemId}?locale=${locale}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TOKEN}`,
+        },
+        body: JSON.stringify({ data: cleanData }),
+      }
+    );
+    await checkResponse(response);
+    return await response.json();
+  };
+
+  // دالة للحصول على imgItems النهائي بعد الحذف والرفع الجديد
+  const getFinalImgItems = (existingImages) => {
+    const keptImages = existingImages
+      .filter(img => !existingMedia.imagesToDelete.includes(img.id))
+      .map(img => img.id);
+    const newImages = uploadedFiles.map(f => f.id);
+    return [...keptImages, ...newImages];
+  };
+
+  if (editingServiceItem?.locale === "en") {
+    // ✅ تحديث الإنجليزي
+    const finalDataEn = {
+      title: formData.title_en,
+      description: formData.description_en,
+      imgItems: getFinalImgItems(editingServiceItem.imgItems || []),
+    };
+    if (formData.service_ajwain)
+      finalDataEn.service_ajwain = parseInt(formData.service_ajwain);
+
+    await updateServiceItem(editingServiceItem.documentId, "en", finalDataEn);
+
+  } else {
+    // ✅ تحديث العربي
+    const arabicVersion = editingServiceItem?.localizations?.find(
+      (loc) => loc.locale === "ar-SA"
+    );
+
+    if (!arabicVersion) {
+      toast.error("⚠️ مفيش نسخة عربية للعنصر ده — لازم تعمل ترجمة (Create) الأول");
+      setIsSaving(false);
+      return;
+    }
+
+    const targetId = arabicVersion.id; // ← لازم نستخدم id بتاع النسخة العربية
+
+    // 1️⃣ هات النسخة القديمة
+    const oldResp = await fetch(
+      `${API_BASE}/api/service-items/${targetId}?locale=ar-SA&populate=imgItems`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } }
+    );
+    await checkResponse(oldResp);
+    const oldData = await oldResp.json();
+
+    // 2️⃣ جهّز البيانات الجديدة
+    const existingImgs = oldData?.data?.imgItems || [];
+    const finalDataAr = {
+      title: formData.title_ar,
+      description: formData.description_ar,
+      imgItems: getFinalImgItems(existingImgs),
+    };
+    if (formData.service_ajwain)
+      finalDataAr.service_ajwain = parseInt(formData.service_ajwain);
+
+    // 3️⃣ قارن القديم بالجديد
+    const getChangedFields = (oldVals, newVals) => {
+      const changed = {};
+      Object.keys(newVals).forEach(key => {
+        if (newVals[key] !== undefined && newVals[key] !== oldVals[key]) {
+          changed[key] = newVals[key];
+        }
+      });
+      return changed;
+    };
+
+    const changedFields = getChangedFields(oldData.data, finalDataAr);
+
+    if (Object.keys(changedFields).length > 0) {
+      await updateServiceItem(targetId, "ar-SA", changedFields);
+    } else {
+      console.log("⚠️ مفيش تغيير في النسخة العربية، مش هنبعت Update");
+    }
+  }
+}
+
+
+
+    // ✅ بعد الحفظ
+    await loadServiceItems();
     setShowForm(false);
     setEditingServiceItem(null);
-    setExistingMedia({ imageIds: [], images: [], imagesToDelete: [] });
-    toast.success(t('success') || 'Saved successfully');
-
+    setExistingMedia({ images: [], imagesToDelete: [] });
+    toast.success(t("success") || "Saved successfully");
   } catch (error) {
-    console.error('Error saving service item:', error);
-    toast.error(error.message || t('error') || 'Error while saving');
+    console.error("Error saving service item:", error);
+    toast.error(error.message || t("error") || "Error while saving");
   } finally {
     setIsSaving(false);
   }
 };
-console.log("Image Items:", formData.imgItems);
 
-const handleDeleteServiceItem = async (documentId) => {
-  console.log("documentId",documentId);
-  
-  try {
-    const result = await Swal.fire({
-      title: "هل أنت متأكد؟",
-      text: "لن تستطيع التراجع عن هذا الحذف!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#3085d6",
-      cancelButtonColor: "#d33",
-      confirmButtonText: "نعم، احذف!",
-      cancelButtonText: "إلغاء",
-    });
 
-    if (!result.isConfirmed) return;
 
-    const token = localStorage.getItem("token");
-    if (!token) {
-      Swal.fire("خطأ", "Token غير موجود، يرجى تسجيل الدخول", "error");
-      return;
+
+  const handleDeleteServiceItem = async (documentId) => {
+    try {
+      const result = await Swal.fire({
+        title: "هل أنت متأكد؟",
+        text: "لن تستطيع التراجع عن هذا الحذف!",
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#3085d6",
+        cancelButtonColor: "#d33",
+        confirmButtonText: "نعم، احذف!",
+        cancelButtonText: "إلغاء",
+      });
+
+      if (!result.isConfirmed) return;
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        Swal.fire("خطأ", "Token غير موجود، يرجى تسجيل الدخول", "error");
+        return;
+      }
+
+      const response = await fetch(`${API_BASE}/api/service-items/${documentId}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("حدث خطأ أثناء حذف العنصر");
+
+      // تحديث الواجهة بعد الحذف
+      setServiceItems((prev) => prev.filter((item) => item.documentId !== documentId));
+
+      Swal.fire("تم!", "تم حذف العنصر بنجاح.", "success");
+    } catch (error) {
+      console.error("Delete error:", error);
+      Swal.fire("خطأ", "فشل الحذف، حاول مرة أخرى", "error");
+    }
+  };
+
+
+
+
+
+
+  const getMediaUrl = (media) => {
+    if (!media) return null;
+
+    const url = media.attributes?.url || media.url;
+    if (!url || typeof url !== "string") return null;
+
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url;
     }
 
-    const deleteUrl = `${API_BASE}/api/service-items/${documentId}`;
-    console.log("deleteUrl",deleteUrl);
-    
+    return `${API_BASE}${url}`;
+  };
 
-    const response = await fetch(deleteUrl, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-    });
 
-    if (!response.ok) {
-      throw new Error("حدث خطأ أثناء حذف العنصر");
+  const ImageWithDelete = ({ image, onRemove, isExisting = false }) => {
+    const [isHovered, setIsHovered] = useState(false);
+
+    // تحديد الـ src
+    let imageSrc;
+    if (isExisting) {
+      imageSrc = getMediaUrl(image); // صورة من الـ API
+    } else if (image instanceof File) {
+      imageSrc = URL.createObjectURL(image); // صورة جديدة من input
+    } else if (typeof image === "string") {
+      imageSrc = image; // string URL مباشر
+    } else if (image?.url) {
+      imageSrc = getMediaUrl(image); // object جاي من Strapi { url: "..." }
     }
 
-  setServiceItems((prev) =>
-  prev.filter((item) => item.id != documentId)
-);
 
-    Swal.fire("تم!", "تم حذف العنصر بنجاح.", "success");
-  } catch (error) {
-    console.error("Delete error:", error);
-    Swal.fire("خطأ", "فشل الحذف، حاول مرة أخرى", "error");
-  }
-};
-
-
-
- const getMediaUrl = (media) => {
-  if (!media) return null;
-
-  const url = media.attributes?.url || media.url;
-  if (!url || typeof url !== "string") return null;
-
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-
-  return `${API_BASE}${url}`;
-};
-
-
- const ImageWithDelete = ({ image, onRemove, isExisting = false }) => {
-  const [isHovered, setIsHovered] = useState(false);
-
-  // تحديد الـ src
-  let imageSrc;
-  if (isExisting) {
-    imageSrc = getMediaUrl(image); // صورة من الـ API
-  } else if (image instanceof File) {
-    imageSrc = URL.createObjectURL(image); // صورة جديدة من input
-  } else if (typeof image === "string") {
-    imageSrc = image; // string URL مباشر
-  } else if (image?.url) {
-    imageSrc = getMediaUrl(image); // object جاي من Strapi { url: "..." }
-  }
-  
-
-  return (
-    <motion.div 
-      className="relative inline-block m-1"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      whileHover={{ scale: 1.05 }}
-    >
-      <img 
-        src={imageSrc}
-        alt="preview" 
-        className="w-16 h-16 object-cover rounded border"
-      />
-      <AnimatePresence>
-        {isHovered && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md"
-            onClick={() => onRemove(isExisting ? image.id : image)}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <X className="w-3 h-3" />
-          </motion.button>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-};
+    return (
+      <motion.div
+        className="relative inline-block m-1"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        whileHover={{ scale: 1.05 }}
+      >
+        <img
+          src={imageSrc}
+          alt="preview"
+          className="w-16 h-16 object-cover rounded border"
+        />
+        <AnimatePresence>
+          {isHovered && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md"
+              onClick={() => onRemove(isExisting ? image.id : image)}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+            >
+              <X className="w-3 h-3" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    );
+  };
 
 
   const containerVariants = {
@@ -605,28 +714,28 @@ const handleDeleteServiceItem = async (documentId) => {
       transition: { duration: 0.2 }
     }
   }
- const normalizeImages = (imgItems) => {
-  if (!imgItems) return [];
-  if (imgItems.data) {
-    return imgItems.data.map((img) => {
-      const rawUrl = img.attributes?.url;
-      if (!rawUrl) return null;
+  const normalizeImages = (imgItems) => {
+    if (!imgItems) return [];
+    if (imgItems.data) {
+      return imgItems.data.map((img) => {
+        const rawUrl = img.attributes?.url;
+        if (!rawUrl) return null;
+        return {
+          id: img.id,
+          url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
+          name: img.attributes?.name,
+        };
+      }).filter(Boolean); // احذف null
+    }
+    return imgItems.map((img) => {
+      if (!img.url) return null;
       return {
         id: img.id,
-        url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
-        name: img.attributes?.name,
+        url: img.url.startsWith("http") ? img.url : `${API_BASE}${img.url}`,
+        name: img.name,
       };
-    }).filter(Boolean); // احذف null
-  }
-  return imgItems.map((img) => {
-    if (!img.url) return null;
-    return {
-      id: img.id,
-      url: img.url.startsWith("http") ? img.url : `${API_BASE}${img.url}`,
-      name: img.name,
-    };
-  }).filter(Boolean);
-};
+    }).filter(Boolean);
+  };
 
 
 
@@ -707,25 +816,25 @@ const handleDeleteServiceItem = async (documentId) => {
                         transition={{ delay: index * 0.1 }}
                         className="border-b border-gray-100 dark:border-gray-700"
                       >
-                      <td className="py-4 px-4">
-  {item.imgItems && item.imgItems.length > 0 ? (
-    <img
-      src={getMediaUrl(item.imgItems[0])}
-      alt="service item"
-      className="inline-block w-12 h-12 object-cover rounded"
-    />
-  ) : (
-    <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center dark:bg-gray-700">
-      <ImageIcon className="w-6 h-6 text-gray-400" />
-    </div>
-  )}
-</td>
+                        <td className="py-4 px-4">
+                          {item.imgItems && item.imgItems.length > 0 ? (
+                            <img
+                              src={getMediaUrl(item.imgItems[0])}
+                              alt="service item"
+                              className="inline-block w-12 h-12 object-cover rounded"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center dark:bg-gray-700">
+                              <ImageIcon className="w-6 h-6 text-gray-400" />
+                            </div>
+                          )}
+                        </td>
 
                         <td className="py-4 px-4">
                           <div className="font-medium text-gray-900 dark:text-white">
-                           
-  { item.title || '-'}
-</div>
+
+                            {item.title || '-'}
+                          </div>
                         </td>
                         <td className="py-4 px-4">
                           <div className="text-sm text-gray-600 dark:text-gray-300 max-w-xs truncate">
@@ -745,16 +854,16 @@ const handleDeleteServiceItem = async (documentId) => {
                             >
                               <Edit className="w-4 h-4" />
                             </motion.button>
-                           <motion.button
-  whileHover={{ scale: 1.1 }}
-  whileTap={{ scale: 0.9 }}
- onClick={() => handleDeleteServiceItem(item.documentId)}
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => handleDeleteServiceItem(item.documentId)}
 
 
-  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
->
-  <Trash2 className="w-4 h-4" />
-</motion.button>
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </motion.button>
 
                           </div>
                         </td>
@@ -855,18 +964,18 @@ const handleDeleteServiceItem = async (documentId) => {
                         ))}
                       </select> */}
                       <select
-  id="link_en"
-  className="mt-1 w-full rounded border border-gray-300 p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-  value={selectedEnglishDocumentId}
-  onChange={(e) => handleEnglishItemSelect(e.target.value)}
->
-  <option value="">{t('select_english_item')}</option>
-  {englishItemsForDropdown.map((opt) => (
-    <option key={opt.documentId} value={opt.documentId}>
-      {opt.title || `#${opt.id}`}
-    </option>
-  ))}
-</select>
+                        id="link_en"
+                        className="mt-1 w-full rounded border border-gray-300 p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                        value={selectedEnglishDocumentId}
+                        onChange={(e) => handleEnglishItemSelect(e.target.value)}
+                      >
+                        <option value="">{t('select_english_item')}</option>
+                        {englishItemsForDropdown.map((opt) => (
+                          <option key={opt.documentId} value={opt.documentId}>
+                            {opt.title || `#${opt.id}`}
+                          </option>
+                        ))}
+                      </select>
 
                     </motion.div>
                     <motion.div
@@ -922,28 +1031,28 @@ const handleDeleteServiceItem = async (documentId) => {
                       <span className="text-sm text-gray-500 dark:text-gray-400">{formData.imgItems.length} file(s) selected</span>
                     )}
                   </div>
-                  
+
                   {/* عرض الصور الجديدة المختارة */}
                   {formData.imgItems.length > 0 && (
                     <div className="mt-3 flex flex-wrap">
                       {formData.imgItems.map((file, index) => (
-                        <ImageWithDelete 
-                          key={index} 
-                          image={file} 
+                        <ImageWithDelete
+                          key={index}
+                          image={file}
                           onRemove={() => handleRemoveNewImage(index)}
                           isExisting={false}
                         />
                       ))}
                     </div>
                   )}
-                  
+
                   {/* عرض الصور القديمة مع إمكانية الحذف */}
                   {editingServiceItem && existingMedia.images?.length > 0 && (
                     <div className="mt-3 flex flex-wrap">
                       {existingMedia.images.map((img) => (
-                        <ImageWithDelete 
-                          key={img.id} 
-                          image={img} 
+                        <ImageWithDelete
+                          key={img.id}
+                          image={img}
                           onRemove={handleRemoveExistingImage}
                           isExisting={true}
                         />
