@@ -394,94 +394,31 @@ const handleSaveServiceItem = async () => {
       }
     }
 
-    // ----------------- ✅ UPDATE -----------------
-    // else {
-    //   const updateServiceItem = async (documentId, locale, data) => {
-
-      
-    //     if (!documentId) throw new Error("❌ documentId مفقود");
-    //     console.log("Updating documentId:", documentId, "with locale:", locale, "and data:", data);
-
-    //     // حذف أي حقول undefined قبل الإرسال
-    //     const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
-
-    //     const response = await fetch(
-    //       `${API_BASE}/api/service-items/${documentId}?locale=${locale}`,
-    //       {
-    //         method: "PUT",
-    //         headers: {
-    //           "Content-Type": "application/json",
-    //           Authorization: `Bearer ${TOKEN}`,
-    //         },
-    //         body: JSON.stringify({ data: cleanData }),
-    //       }
-    //     );
-    //     await checkResponse(response);
-    //     return await response.json();
-    //   };
-
-    //   // دالة للحصول على imgItems النهائي بعد الحذف والرفع الجديد
-    //   const getFinalImgItems = (existingImages) => {
-    //     const keptImages = existingImages
-    //       .filter(img => !existingMedia.imagesToDelete.includes(img.id))
-    //       .map(img => img.id);
-    //     const newImages = uploadedFiles.map(f => f.id);
-    //     return [...keptImages, ...newImages];
-    //   };
-
-    //   if (editingServiceItem?.locale === "en") {
-    //     const finalDataEn = {
-    //       title: formData.title_en,
-    //       description: formData.description_en,
-    //       imgItems: getFinalImgItems(editingServiceItem.imgItems || []),
-    //     };
-    //     if (formData.service_ajwain) finalDataEn.service_ajwain = parseInt(formData.service_ajwain);
-
-    //     await updateServiceItem(editingServiceItem.documentId, "en", finalDataEn);
-    //   } else {
-    //     const arabicVersion = editingServiceItem?.localizations?.find(
-    //       (loc) => loc.locale === "ar-SA"
-    //     );
-    //     const targetDocId = arabicVersion?.documentId || editingServiceItem.documentId;
-
-    //     const existingImgs = arabicVersion?.imgItems || editingServiceItem?.imgItems || [];
-    //     const finalDataAr = {
-    //       title: formData.title_ar,
-    //       description: formData.description_ar,
-    //       imgItems: getFinalImgItems(existingImgs),
-    //     };
-    //     if (formData.service_ajwain) finalDataAr.service_ajwain = parseInt(formData.service_ajwain);
-
-    //     await updateServiceItem(targetDocId, "ar-SA", finalDataAr);
-    //   }
-    // }
-
-    // ----------------- ✅ UPDATE -----------------
-// ----------------- ✅ UPDATE -----------------
+  
+// ----------------- ✅ UPDATE (الجزء المصحح والنهائي) -----------------
 else {
-  const updateServiceItem = async (itemId, locale, data) => {
-    if (!itemId) throw new Error("❌ itemId مفقود");
-    console.log("Updating itemId:", itemId, "with locale:", locale, "and data:", data);
+  const updateServiceItem = async (documentId, locale, data) => {
+    if (!documentId) throw new Error("❌ Document ID مفقود");
+    console.log("Updating documentId:", documentId, "with locale:", locale, "and data:", data);
 
-    // حذف أي حقول undefined قبل الإرسال
     const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
 
     const response = await fetch(
-      `${API_BASE}/api/service-items/${itemId}?locale=${locale}`,
-      {
+      `${API_BASE}/api/service-items/${documentId}?locale=${locale}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${TOKEN}`,
         },
-        body: JSON.stringify({ data: cleanData }),
+        body: JSON.stringify({
+          data: cleanData
+        }),
       }
     );
     await checkResponse(response);
     return await response.json();
   };
 
-  // دالة للحصول على imgItems النهائي بعد الحذف والرفع الجديد
   const getFinalImgItems = (existingImages) => {
     const keptImages = existingImages
       .filter(img => !existingMedia.imagesToDelete.includes(img.id))
@@ -490,69 +427,26 @@ else {
     return [...keptImages, ...newImages];
   };
 
-  if (editingServiceItem?.locale === "en") {
-    // ✅ تحديث الإنجليزي
-    const finalDataEn = {
-      title: formData.title_en,
-      description: formData.description_en,
-      imgItems: getFinalImgItems(editingServiceItem.imgItems || []),
-    };
-    if (formData.service_ajwain)
-      finalDataEn.service_ajwain = parseInt(formData.service_ajwain);
+  const targetDocumentId = editingServiceItem.documentId;
+  // ✅ التغيير هنا: استخدم لغة العنصر الذي يتم تعديله مباشرة
+  const targetLocale = editingServiceItem.locale;
 
-    await updateServiceItem(editingServiceItem.documentId, "en", finalDataEn);
-
-  } else {
-    // ✅ تحديث العربي
-    const arabicVersion = editingServiceItem?.localizations?.find(
-      (loc) => loc.locale === "ar-SA"
-    );
-
-    if (!arabicVersion) {
-      toast.error("⚠️ مفيش نسخة عربية للعنصر ده — لازم تعمل ترجمة (Create) الأول");
-      setIsSaving(false);
-      return;
-    }
-
-    const targetId = arabicVersion.id; // ← لازم نستخدم id بتاع النسخة العربية
-
-    // 1️⃣ هات النسخة القديمة
-    const oldResp = await fetch(
-      `${API_BASE}/api/service-items/${targetId}?locale=ar-SA&populate=imgItems`,
-      { headers: { Authorization: `Bearer ${TOKEN}` } }
-    );
-    await checkResponse(oldResp);
-    const oldData = await oldResp.json();
-
-    // 2️⃣ جهّز البيانات الجديدة
-    const existingImgs = oldData?.data?.imgItems || [];
-    const finalDataAr = {
-      title: formData.title_ar,
-      description: formData.description_ar,
-      imgItems: getFinalImgItems(existingImgs),
-    };
-    if (formData.service_ajwain)
-      finalDataAr.service_ajwain = parseInt(formData.service_ajwain);
-
-    // 3️⃣ قارن القديم بالجديد
-    const getChangedFields = (oldVals, newVals) => {
-      const changed = {};
-      Object.keys(newVals).forEach(key => {
-        if (newVals[key] !== undefined && newVals[key] !== oldVals[key]) {
-          changed[key] = newVals[key];
-        }
-      });
-      return changed;
-    };
-
-    const changedFields = getChangedFields(oldData.data, finalDataAr);
-
-    if (Object.keys(changedFields).length > 0) {
-      await updateServiceItem(targetId, "ar-SA", changedFields);
-    } else {
-      console.log("⚠️ مفيش تغيير في النسخة العربية، مش هنبعت Update");
-    }
+  if (!targetDocumentId) {
+    toast.error("⚠️ Document ID مفقود. برجاء إعادة المحاولة.");
+    setIsSaving(false);
+    return;
   }
+
+  // ✅ تجهيز البيانات النهائية للإرسال
+  const finalData = {
+    // استخدم formLanguage لتحديد حقول البيانات التي يجب إرسالها
+    title: formLanguage === "en" ? formData.title_en : formData.title_ar,
+    description: formLanguage === "en" ? formData.description_en : formData.description_ar,
+    imgItems: getFinalImgItems(editingServiceItem.imgItems || []),
+    service_ajwain: formData.service_ajwain ? parseInt(formData.service_ajwain) : undefined
+  };
+
+  await updateServiceItem(targetDocumentId, targetLocale, finalData);
 }
 
 
