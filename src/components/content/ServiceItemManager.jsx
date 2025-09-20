@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -20,7 +19,10 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  Languages
+  Languages,
+  Loader2,
+  Video,
+  Link
 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -31,7 +33,6 @@ import { toast } from 'sonner';
 const API_BASE = 'http://localhost:1337';
 console.log("API_BASE:", API_BASE);
 
-
 const ServiceItemManager = () => {
   const { t, language } = useLanguage();
   const { theme } = useTheme();
@@ -41,6 +42,7 @@ const ServiceItemManager = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingServiceItem, setEditingServiceItem] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
   const [activeTab, setActiveTab] = useState('en');
   const [formData, setFormData] = useState({
@@ -49,26 +51,52 @@ const ServiceItemManager = () => {
     description_en: '',
     description_ar: '',
     imgItems: [],
-    service_ajwain: ''
+    service_ajwain: '',
+    videoUrl: ''
   });
   const [existingMedia, setExistingMedia] = useState({
     imageIds: [],
     images: [],
     imagesToDelete: []
   });
-  // New: manage separate forms and Arabic linking to English via documentId
   
-  const [formLanguage, setFormLanguage] = useState(language); // 'en' | 'ar'
-  const [englishItemsForDropdown, setEnglishItemsForDropdown] = useState([]); // {documentId, id, title}
+  const [formLanguage, setFormLanguage] = useState(language);
+  const [englishItemsForDropdown, setEnglishItemsForDropdown] = useState([]);
   const [selectedEnglishDocumentId, setSelectedEnglishDocumentId] = useState('');
-  // في أعلى الـ component
-const [editingItemId, setEditingItemId] = useState(null);
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [status, setStatus] = useState('published'); // حالة النشر: published أو draft
+
+  // دالة لتنسيق التاريخ بشكل صديق للمستخدم
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return language === 'ar' ? 'اليوم' : 'Today';
+    } else if (diffDays === 1) {
+      return language === 'ar' ? 'أمس' : 'Yesterday';
+    } else if (diffDays < 7) {
+      return language === 'ar' 
+        ? `منذ ${diffDays} أيام` 
+        : `${diffDays} days ago`;
+    } else {
+      return date.toLocaleDateString(language === 'ar' ? 'ar-SA' : 'en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+  };
 
   // دالة محسنة لجلب التوكن مع التحقق من الصلاحية
   const getValidToken = () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      toast.error(t('auth_error') || 'Authentication token missing');
+      toast.error(language === 'ar' ? 'يجب تسجيل الدخول للمتابعة 🔐' : 'Please log in to continue 🔐');
       throw new Error('Authentication token missing');
     }
     return token;
@@ -79,39 +107,34 @@ const [editingItemId, setEditingItemId] = useState(null);
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
         localStorage.removeItem('token');
-        toast.error(t('auth_error') || 'Authentication failed. Please login again.');
+        toast.error(language === 'ar' ? 'انتهت جلستك، يرجى تسجيل الدخول مرة أخرى' : 'Session expired, please log in again');
         throw new Error('Authentication failed');
       }
 
       const errorText = await response.text();
       console.error(`Server error: ${response.status}`, errorText);
-      throw new Error(`Server error: ${response.status}`);
+      throw new Error(language === 'ar' ? 'عذراً، حدث خطأ في الخادم' : 'Oops! Something went wrong on our end');
     }
     return response;
   };
 
   // دالة محسنة لجلب عناصر الخدمة
   const loadServiceItems = async () => {
-    // استخدم لغة افتراضية لو اللغة مش معرفة
+    setIsLoading(true);
     let lang = language || 'en';
 
-    // لو اللغة عربية استخدم SA-ar
     if (lang === 'ar') {
       lang = 'ar-SA';
     }
 
     console.log("🌍 Current language:", lang);
-     
-
 
     try {
-      // استخدم URL كامل وصحيح
       const response = await fetch(
         `http://localhost:1337/api/service-items?populate=*&locale=${lang}`
       );
       console.log("response", response);
 
-      // تحقق من استجابة السيرفر
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -124,23 +147,26 @@ const [editingItemId, setEditingItemId] = useState(null);
         return {
           id: item.id,
           documentId: attrs.documentId,
-          title: attrs.title, // سيكون حسب locale الحالي
+          title: attrs.title,
           description: attrs.description,
           locale: attrs.locale,
-          imgItems: normalizeImages(attrs.imgItems)
+          imgItems: normalizeImages(attrs.imgItems),
+          createdAt: attrs.createdAt,
+          updatedAt: attrs.updatedAt,
+          videoUrl: attrs.videoUrl || '',
+          publishedAt: attrs.publishedAt,
+          status: attrs.publishedAt ? 'published' : 'draft'
         };
       });
 
       setServiceItems(formatted);
     } catch (err) {
       console.error("Error loading service items:", err);
-      toast.error("Error loading items");
+      toast.error(language === 'ar' ? 'عذراً، حدث خطأ أثناء تحميل البيانات' : 'Oops! We had trouble loading your items');
+    } finally {
+      setIsLoading(false);
     }
   };
-
-
-
-
 
   useEffect(() => {
     loadServiceItems();
@@ -156,7 +182,6 @@ const [editingItemId, setEditingItemId] = useState(null);
   const startAddServiceItem = async (lang) => {
     setEditingServiceItem(null);
     setFormLanguage(lang);
-    console.log("setFormLanguage",setFormLanguage(lang));
     
     setFormData({
       title_en: '',
@@ -164,10 +189,12 @@ const [editingItemId, setEditingItemId] = useState(null);
       description_en: '',
       description_ar: '',
       imgItems: [],
-      service_ajwain: ''
+      service_ajwain: '',
+      videoUrl: ''
     });
     setExistingMedia({ imageIds: [], images: [], imagesToDelete: [] });
     setSelectedEnglishDocumentId('');
+    setStatus('published');
 
     if (lang === 'ar') {
       try {
@@ -189,9 +216,9 @@ const [editingItemId, setEditingItemId] = useState(null);
       }
     }
 
-
     setShowForm(true);
   };
+
   const handleEnglishItemSelect = (docId) => {
     setSelectedEnglishDocumentId(docId);
 
@@ -206,35 +233,12 @@ const [editingItemId, setEditingItemId] = useState(null);
         images,
         imagesToDelete: [],
       });
-    }
-  };
-
-
-
-  console.log();
-
-
-  // New: load English items for Arabic linking
-  const loadEnglishItemsForDropdown = async () => {
-    try {
-      const TOKEN = getValidToken();
-      const res = await fetch(`${API_BASE}/api/service-items?populate=*&locale=en`, {
-        headers: {
-          'Authorization': `Bearer ${TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      await checkResponse(res);
-      const json = await res.json();
-      const options = (json.data || []).map((item) => {
-        const attrs = item.attributes || {};
-        return { documentId: attrs.documentId, id: item.id, title: attrs.title || '' };
-      });
-      setEnglishItemsForDropdown(options);
-    } catch (e) {
-      console.error('Failed to load English items for dropdown', e);
-      toast.error(t('load_error') || 'Failed to load English items');
-      setEnglishItemsForDropdown([]);
+      
+      // تعبئة بيانات الفيديو إذا كانت موجودة
+      setFormData(prev => ({
+        ...prev,
+        videoUrl: selectedItem.videoUrl || ''
+      }));
     }
   };
 
@@ -255,8 +259,11 @@ const [editingItemId, setEditingItemId] = useState(null);
       description_en: item.description || '',
       description_ar: item.description || '',
       imgItems: [],
-      service_ajwain: item.service_ajwain?.id || ''
+      service_ajwain: item.service_ajwain?.id || '',
+      videoUrl: item.videoUrl || ''
     });
+    
+    setStatus(item.status || 'published');
     setShowForm(true);
   };
 
@@ -283,209 +290,204 @@ const [editingItemId, setEditingItemId] = useState(null);
     }));
   };
 
+  const handleSaveServiceItem = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
 
-  
+    try {
+      const TOKEN = getValidToken();
+      if (!TOKEN) throw new Error(language === 'ar' ? "يجب تسجيل الدخول أولا" : "Please log in first");
 
-
-
-const handleSaveServiceItem = async () => {
-  if (isSaving) return;
-  setIsSaving(true);
-
-  try {
-    const TOKEN = getValidToken();
-    if (!TOKEN) throw new Error("❌ Authentication token missing");
-
-    // ✅ تحقق من البيانات المطلوبة
-    if (formLanguage === "en") {
-      if (!formData.title_en?.trim() || !formData.description_en?.trim()) {
-        toast.error("⚠️ لازم تكتب عنوان ووصف بالإنجليزي");
-        setIsSaving(false);
-        return;
-      }
-    } else if (formLanguage === "ar") {
-      if (!formData.title_ar?.trim() || !formData.description_ar?.trim()) {
-        toast.error("⚠️ لازم تكتب عنوان ووصف بالعربي");
-        setIsSaving(false);
-        return;
-      }
-      if (!editingServiceItem && !selectedEnglishDocumentId) {
-        toast.error("⚠️ لازم تختار العنصر الإنجليزي اللي هتربط الترجمة بيه");
-        setIsSaving(false);
-        return;
-      }
-    }
-
-    // ✅ رفع الصور الجديدة
-    let uploadedFiles = [];
-    if (formData.imgItems && formData.imgItems.length > 0) {
-      const uploadFormData = new FormData();
-      formData.imgItems.forEach((file) => {
-        if (file instanceof File) {
-          uploadFormData.append("files", file);
-        }
-      });
-
-      if ([...uploadFormData].length > 0) {
-        const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${TOKEN}` },
-          body: uploadFormData,
-        });
-        await checkResponse(uploadResponse);
-        uploadedFiles = await uploadResponse.json();
-      }
-    }
-
-    // ----------------- ✅ CREATE -----------------
-    if (!editingServiceItem) {
+      // ✅ تحقق من البيانات المطلوبة
       if (formLanguage === "en") {
-        const finalDataEn = {
-          data: {
-            title: formData.title_en,
-            description: formData.description_en,
-            locale: "en",
-          },
-        };
-        if (uploadedFiles.length > 0) {
-          finalDataEn.data.imgItems = uploadedFiles.map((f) => f.id);
+        if (!formData.title_en?.trim() || !formData.description_en?.trim()) {
+          toast.error(language === 'ar' ? "يرجى إضافة عنوان ووصف باللغة الإنجليزية 📝" : "Please add both a title and description in English 📝");
+          setIsSaving(false);
+          return;
         }
-        if (formData.service_ajwain) {
-          const serviceId = parseInt(formData.service_ajwain);
-          if (!isNaN(serviceId)) finalDataEn.data.service_ajwain = serviceId;
+      } else if (formLanguage === "ar") {
+        if (!formData.title_ar?.trim() || !formData.description_ar?.trim()) {
+          toast.error(language === 'ar' ? "يرجى إضافة عنوان ووصف باللغة العربية 📝" : "Please add both a title and description in Arabic 📝");
+          setIsSaving(false);
+          return;
         }
+        if (!editingServiceItem && !selectedEnglishDocumentId) {
+          toast.error(language === 'ar' ? "يرجى اختيار العنصر الإنجليزي المرتبط بهذه الترجمة 🔗" : "Please select an English item to link to this Arabic version 🔗");
+          setIsSaving(false);
+          return;
+        }
+      }
 
-        const enResp = await fetch(`${API_BASE}/api/service-items?locale=en`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${TOKEN}`,
-          },
-          body: JSON.stringify(finalDataEn),
+      // ✅ رفع الصور الجديدة
+      let uploadedFiles = [];
+      if (formData.imgItems && formData.imgItems.length > 0) {
+        const uploadFormData = new FormData();
+        formData.imgItems.forEach((file) => {
+          if (file instanceof File) {
+            uploadFormData.append("files", file);
+          }
         });
-        await checkResponse(enResp);
-      } else {
-        const finalDataAr = {
-          data: {
-            title: formData.title_ar,
-            description: formData.description_ar,
-          },
-        };
-        if (uploadedFiles.length > 0) {
-          finalDataAr.data.imgItems = uploadedFiles.map((f) => f.id);
-        }
-        if (formData.service_ajwain) {
-          const serviceId = parseInt(formData.service_ajwain);
-          if (!isNaN(serviceId)) finalDataAr.data.service_ajwain = serviceId;
-        }
 
-        const arResp = await fetch(
-          `${API_BASE}/api/service-items/${selectedEnglishDocumentId}?locale=ar-SA`,
-          {
-            method: "PUT",
+        if ([...uploadFormData].length > 0) {
+          const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${TOKEN}` },
+            body: uploadFormData,
+          });
+          await checkResponse(uploadResponse);
+          uploadedFiles = await uploadResponse.json();
+        }
+      }
+
+      // ----------------- ✅ CREATE -----------------
+      if (!editingServiceItem) {
+        if (formLanguage === "en") {
+          const finalDataEn = {
+            data: {
+              title: formData.title_en,
+              description: formData.description_en,
+              locale: "en",
+              videoUrl: formData.videoUrl || undefined,
+              publishedAt: status === 'published' ? new Date().toISOString() : null
+            },
+          };
+          if (uploadedFiles.length > 0) {
+            finalDataEn.data.imgItems = uploadedFiles.map((f) => f.id);
+          }
+          if (formData.service_ajwain) {
+            const serviceId = parseInt(formData.service_ajwain);
+            if (!isNaN(serviceId)) finalDataEn.data.service_ajwain = serviceId;
+          }
+
+          const enResp = await fetch(`${API_BASE}/api/service-items?locale=en`, {
+            method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${TOKEN}`,
             },
-            body: JSON.stringify(finalDataAr),
+            body: JSON.stringify(finalDataEn),
+          });
+          await checkResponse(enResp);
+        } else {
+          const finalDataAr = {
+            data: {
+              title: formData.title_ar,
+              description: formData.description_ar,
+              videoUrl: formData.videoUrl || undefined,
+              publishedAt: status === 'published' ? new Date().toISOString() : null
+            },
+          };
+          if (uploadedFiles.length > 0) {
+            finalDataAr.data.imgItems = uploadedFiles.map((f) => f.id);
           }
-        );
-        await checkResponse(arResp);
+          if (formData.service_ajwain) {
+            const serviceId = parseInt(formData.service_ajwain);
+            if (!isNaN(serviceId)) finalDataAr.data.service_ajwain = serviceId;
+          }
+
+          const arResp = await fetch(
+            `${API_BASE}/api/service-items/${selectedEnglishDocumentId}?locale=ar-SA`,
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${TOKEN}`,
+              },
+              body: JSON.stringify(finalDataAr),
+            }
+          );
+          await checkResponse(arResp);
+        }
+      } else {
+        // ----------------- ✅ UPDATE -----------------
+        const updateServiceItem = async (documentId, locale, data) => {
+          if (!documentId) throw new Error(language === 'ar' ? "معرف المستند مفقود" : "Document ID is missing");
+          console.log("Updating documentId:", documentId, "with locale:", locale, "and data:", data);
+
+          const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
+
+          const response = await fetch(
+            `${API_BASE}/api/service-items/${documentId}?locale=${locale}`, {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${TOKEN}`,
+              },
+              body: JSON.stringify({
+                data: cleanData
+              }),
+            }
+          );
+          await checkResponse(response);
+          return await response.json();
+        };
+
+        const getFinalImgItems = (existingImages) => {
+          const keptImages = existingImages
+            .filter(img => !existingMedia.imagesToDelete.includes(img.id))
+            .map(img => img.id);
+          const newImages = uploadedFiles.map(f => f.id);
+          return [...keptImages, ...newImages];
+        };
+
+        const targetDocumentId = editingServiceItem.documentId;
+        const targetLocale = editingServiceItem.locale;
+
+        if (!targetDocumentId) {
+          toast.error(language === 'ar' ? "معرف المستند مفقود. يرجى المحاولة مرة أخرى." : "Document ID is missing. Please try again.");
+          setIsSaving(false);
+          return;
+        }
+
+        const finalData = {
+          title: formLanguage === "en" ? formData.title_en : formData.title_ar,
+          description: formLanguage === "en" ? formData.description_en : formData.description_ar,
+          imgItems: getFinalImgItems(editingServiceItem.imgItems || []),
+          service_ajwain: formData.service_ajwain ? parseInt(formData.service_ajwain) : undefined,
+          videoUrl: formData.videoUrl || undefined,
+          publishedAt: status === 'published' ? new Date().toISOString() : null
+        };
+
+        await updateServiceItem(targetDocumentId, targetLocale, finalData);
       }
+
+      // ✅ بعد الحفظ
+      await loadServiceItems();
+      setShowForm(false);
+      setEditingServiceItem(null);
+      setExistingMedia({ images: [], imagesToDelete: [] });
+      toast.success(language === 'ar' ? "تم حفظ العنصر بنجاح! 🎉" : "Awesome! Your item has been saved successfully! 🎉");
+    } catch (error) {
+      console.error("Error saving service item:", error);
+      toast.error(language === 'ar' ? "عذراً، حدث خطأ أثناء الحفظ. يرجى المحاولة مرة أخرى." : "Oops! Something went wrong while saving. Please try again 🤗");
+    } finally {
+      setIsSaving(false);
     }
-
-  
-// ----------------- ✅ UPDATE (الجزء المصحح والنهائي) -----------------
-else {
-  const updateServiceItem = async (documentId, locale, data) => {
-    if (!documentId) throw new Error("❌ Document ID مفقود");
-    console.log("Updating documentId:", documentId, "with locale:", locale, "and data:", data);
-
-    const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
-
-    const response = await fetch(
-      `${API_BASE}/api/service-items/${documentId}?locale=${locale}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${TOKEN}`,
-        },
-        body: JSON.stringify({
-          data: cleanData
-        }),
-      }
-    );
-    await checkResponse(response);
-    return await response.json();
   };
-
-  const getFinalImgItems = (existingImages) => {
-    const keptImages = existingImages
-      .filter(img => !existingMedia.imagesToDelete.includes(img.id))
-      .map(img => img.id);
-    const newImages = uploadedFiles.map(f => f.id);
-    return [...keptImages, ...newImages];
-  };
-
-  const targetDocumentId = editingServiceItem.documentId;
-  // ✅ التغيير هنا: استخدم لغة العنصر الذي يتم تعديله مباشرة
-  const targetLocale = editingServiceItem.locale;
-
-  if (!targetDocumentId) {
-    toast.error("⚠️ Document ID مفقود. برجاء إعادة المحاولة.");
-    setIsSaving(false);
-    return;
-  }
-
-  // ✅ تجهيز البيانات النهائية للإرسال
-  const finalData = {
-    // استخدم formLanguage لتحديد حقول البيانات التي يجب إرسالها
-    title: formLanguage === "en" ? formData.title_en : formData.title_ar,
-    description: formLanguage === "en" ? formData.description_en : formData.description_ar,
-    imgItems: getFinalImgItems(editingServiceItem.imgItems || []),
-    service_ajwain: formData.service_ajwain ? parseInt(formData.service_ajwain) : undefined
-  };
-
-  await updateServiceItem(targetDocumentId, targetLocale, finalData);
-}
-
-
-
-    // ✅ بعد الحفظ
-    await loadServiceItems();
-    setShowForm(false);
-    setEditingServiceItem(null);
-    setExistingMedia({ images: [], imagesToDelete: [] });
-    toast.success(t("success") || "Saved successfully");
-  } catch (error) {
-    console.error("Error saving service item:", error);
-    toast.error(error.message || t("error") || "Error while saving");
-  } finally {
-    setIsSaving(false);
-  }
-};
-
-
-
 
   const handleDeleteServiceItem = async (documentId) => {
     try {
       const result = await Swal.fire({
-        title: "هل أنت متأكد؟",
-        text: "لن تستطيع التراجع عن هذا الحذف!",
-        icon: "warning",
+        title: language === 'ar' ? "هل أنت متأكد من هذا الإجراء؟" : "Are you sure about this?",
+        text: language === 'ar' ? "لن تتمكن من التراجع عن هذا الحذف!" : "This action cannot be undone!",
+        icon: "question",
         showCancelButton: true,
         confirmButtonColor: "#3085d6",
         cancelButtonColor: "#d33",
-        confirmButtonText: "نعم، احذف!",
-        cancelButtonText: "إلغاء",
+        confirmButtonText: language === 'ar' ? "نعم، احذف!" : "Yes, delete it!",
+        cancelButtonText: language === 'ar' ? "إلغاء" : "Cancel",
       });
 
       if (!result.isConfirmed) return;
 
+      setDeletingId(documentId);
       const token = localStorage.getItem("token");
       if (!token) {
-        Swal.fire("خطأ", "Token غير موجود، يرجى تسجيل الدخول", "error");
+        Swal.fire(
+          language === 'ar' ? "عذراً" : "Oops!",
+          language === 'ar' ? "يجب تسجيل الدخول أولاً" : "Please log in first",
+          "info"
+        );
         return;
       }
 
@@ -497,22 +499,26 @@ else {
         },
       });
 
-      if (!response.ok) throw new Error("حدث خطأ أثناء حذف العنصر");
+      if (!response.ok) throw new Error(language === 'ar' ? "حدث خطأ أثناء حذف العنصر" : "Error deleting item");
 
-      // تحديث الواجهة بعد الحذف
       setServiceItems((prev) => prev.filter((item) => item.documentId !== documentId));
 
-      Swal.fire("تم!", "تم حذف العنصر بنجاح.", "success");
+      Swal.fire(
+        language === 'ar' ? "تم الحذف!" : "Success!",
+        language === 'ar' ? "تم حذف العنصر بنجاح." : "The item has been successfully removed.",
+        "success"
+      );
     } catch (error) {
       console.error("Delete error:", error);
-      Swal.fire("خطأ", "فشل الحذف، حاول مرة أخرى", "error");
+      Swal.fire(
+        language === 'ar' ? "عذراً" : "Oops!",
+        language === 'ar' ? "لم نتمكن من حذف هذا العنصر. يرجى المحاولة مرة أخرى." : "We couldn't delete this item. Please try again.",
+        "error"
+      );
+    } finally {
+      setDeletingId(null);
     }
   };
-
-
-
-
-
 
   const getMediaUrl = (media) => {
     if (!media) return null;
@@ -527,22 +533,19 @@ else {
     return `${API_BASE}${url}`;
   };
 
-
   const ImageWithDelete = ({ image, onRemove, isExisting = false }) => {
     const [isHovered, setIsHovered] = useState(false);
 
-    // تحديد الـ src
     let imageSrc;
     if (isExisting) {
-      imageSrc = getMediaUrl(image); // صورة من الـ API
+      imageSrc = getMediaUrl(image);
     } else if (image instanceof File) {
-      imageSrc = URL.createObjectURL(image); // صورة جديدة من input
+      imageSrc = URL.createObjectURL(image);
     } else if (typeof image === "string") {
-      imageSrc = image; // string URL مباشر
+      imageSrc = image;
     } else if (image?.url) {
-      imageSrc = getMediaUrl(image); // object جاي من Strapi { url: "..." }
+      imageSrc = getMediaUrl(image);
     }
-
 
     return (
       <motion.div
@@ -574,7 +577,6 @@ else {
       </motion.div>
     );
   };
-
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -608,6 +610,7 @@ else {
       transition: { duration: 0.2 }
     }
   }
+
   const normalizeImages = (imgItems) => {
     if (!imgItems) return [];
     if (imgItems.data) {
@@ -619,7 +622,7 @@ else {
           url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
           name: img.attributes?.name,
         };
-      }).filter(Boolean); // احذف null
+      }).filter(Boolean);
     }
     return imgItems.map((img) => {
       if (!img.url) return null;
@@ -630,8 +633,6 @@ else {
       };
     }).filter(Boolean);
   };
-
-
 
   return (
     <motion.div
@@ -650,20 +651,21 @@ else {
           <motion.div
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            className="flex"
           >
             <Button
               onClick={() => startAddServiceItem('en')}
               className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-800"
             >
               <Plus className="w-4 h-4 mr-2" />
-              {t('add_new_service_item')} (EN)
+              {language === 'ar' ? 'إضافة عنصر جديد (إنجليزي)' : 'Add New Item (EN)'}
             </Button>
             <Button
               onClick={() => startAddServiceItem('ar')}
               className="ml-2 bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-700 dark:hover:bg-emerald-800"
             >
               <Plus className="w-4 h-4 mr-2" />
-              {t('add_new_service_item')} (AR)
+              {language === 'ar' ? 'إضافة عنصر جديد (عربي)' : 'Add New Item (AR)'}
             </Button>
           </motion.div>
         </div>
@@ -677,7 +679,7 @@ else {
               <div className="relative w-64">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder={t('search_service_items')}
+                  placeholder={language === 'ar' ? 'ابحث في عناصر الخدمة... 🔍' : 'Search service items... 🔍'}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 dark:bg-gray-700 dark:text-white dark:border-gray-600"
@@ -686,87 +688,139 @@ else {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('image')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('title')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('Description')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('created_at')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-center' : 'text-center'}`}>{t('actions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <AnimatePresence>
-                    {filteredServiceItems.map((item, index) => (
-                      <motion.tr
-                        key={item.id || index}
-                        variants={tableRowVariants}
-                        initial="hidden"
-                        animate="visible"
-                        exit="hidden"
-                        whileHover="hover"
-                        transition={{ delay: index * 0.1 }}
-                        className="border-b border-gray-100 dark:border-gray-700"
-                      >
-                        <td className="py-4 px-4">
-                          {item.imgItems && item.imgItems.length > 0 ? (
-                            <img
-                              src={getMediaUrl(item.imgItems[0])}
-                              alt="service item"
-                              className="inline-block w-12 h-12 object-cover rounded"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center dark:bg-gray-700">
-                              <ImageIcon className="w-6 h-6 text-gray-400" />
-                            </div>
-                          )}
-                        </td>
+            {isLoading ? (
+              <div className="flex justify-center items-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                <span className="ml-2 text-gray-600 dark:text-gray-400">
+                  {language === 'ar' ? 'جاري التحميل...' : 'Loading your items...'}
+                </span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('image')}</th>
+                      <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('title')}</th>
+                      <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('Description')}</th>
+                      <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>Video</th>
+                      <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('status')}</th>
+                      <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('created_at')}</th>
+                      <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-center' : 'text-center'}`}>{t('actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <AnimatePresence>
+                      {filteredServiceItems.length > 0 ? (
+                        filteredServiceItems.map((item, index) => (
+                          <motion.tr
+                            key={item.id || index}
+                            variants={tableRowVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="hidden"
+                            whileHover="hover"
+                            transition={{ delay: index * 0.1 }}
+                            className="border-b border-gray-100 dark:border-gray-700"
+                          >
+                            <td className="py-4 px-4">
+                              {item.imgItems && item.imgItems.length > 0 ? (
+                                <img
+                                  src={getMediaUrl(item.imgItems[0])}
+                                  alt="service item"
+                                  className="inline-block w-12 h-12 object-cover rounded"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center dark:bg-gray-700">
+                                  <ImageIcon className="w-6 h-6 text-gray-400" />
+                                </div>
+                              )}
+                            </td>
 
-                        <td className="py-4 px-4">
-                          <div className="font-medium text-gray-900 dark:text-white">
-
-                            {item.title || '-'}
-                          </div>
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="text-sm text-gray-600 dark:text-gray-300 max-w-xs truncate">
-                            {item.description || '-'}
-                          </div>
-                        </td>
-                        <td className="py-4 px-4 text-gray-500 dark:text-gray-400">
-                          {item.createdAt || '-'}
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="flex items-center justify-center space-x-2">
-                            <motion.button
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => handleEditServiceItem(item)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors dark:hover:bg-gray-700"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </motion.button>
-                            <motion.button
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => handleDeleteServiceItem(item.documentId)}
-
-
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </motion.button>
-
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </div>
+                            <td className="py-4 px-4">
+                              <div className="font-medium text-gray-900 dark:text-white">
+                                {item.title || '-'}
+                              </div>
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="text-sm text-gray-600 dark:text-gray-300 max-w-xs truncate">
+                                {item.description || '-'}
+                              </div>
+                            </td>
+                            <td className="py-4 px-4">
+                              {item.videoUrl ? (
+                                <a 
+                                  href={item.videoUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:text-blue-700 flex items-center"
+                                >
+                                  <Video className="w-4 h-4 mr-1" />
+                                  {language === 'ar' ? 'عرض الفيديو' : 'View Video'}
+                                </a>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="py-4 px-4">
+                              <Badge 
+                                className={item.status === 'published' 
+                                  ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300" 
+                                  : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
+                                }
+                              >
+                                {item.status === 'published' 
+                                  ? (language === 'ar' ? 'منشور' : 'Published') 
+                                  : (language === 'ar' ? 'مسودة' : 'Draft')
+                                }
+                              </Badge>
+                            </td>
+                            <td className="py-4 px-4 text-gray-500 dark:text-gray-400">
+                              {formatDate(item.createdAt)}
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="flex items-center justify-center space-x-2">
+                                <motion.button
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => handleEditServiceItem(item)}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors dark:hover:bg-gray-700"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </motion.button>
+                                <motion.button
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => handleDeleteServiceItem(item.documentId)}
+                                  disabled={deletingId === item.documentId}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
+                                >
+                                  {deletingId === item.documentId ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                </motion.button>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="7" className="py-8 text-center text-gray-500 dark:text-gray-400">
+                            {searchTerm ? (
+                              language === 'ar' ? 'لم نعثر على نتائج تطابق بحثك. حاول بكلمات أخرى! 🔍' : 'No matches found for your search. Try different keywords! 🔍'
+                            ) : (
+                              language === 'ar' ? 'لا توجد عناصر خدمة بعد. أضف أول عنصر لتبدأ! 🚀' : 'No service items yet. Add your first one to get started! 🚀'
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </AnimatePresence>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -802,6 +856,24 @@ else {
               </div>
 
               <div className="p-6 space-y-6">
+                {/* Status Selector */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 }}
+                >
+                  <Label htmlFor="status" className="dark:text-gray-200">{t('status')}</Label>
+                  <select
+                    id="status"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className="mt-1 w-full rounded border border-gray-300 p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                  >
+                    <option value="published">{language === 'ar' ? 'منشور' : 'Published'}</option>
+                    <option value="draft">{language === 'ar' ? 'مسودة' : 'Draft'}</option>
+                  </select>
+                </motion.div>
+
                 {formLanguage === 'en' && (
                   <div className="space-y-4 mt-2">
                     <motion.div
@@ -814,7 +886,7 @@ else {
                         id="title_en"
                         value={formData.title_en}
                         onChange={(e) => setFormData({ ...formData, title_en: e.target.value })}
-                        placeholder={t('enter_title_en')}
+                        placeholder={language === 'ar' ? 'أدخل العنوان باللغة الإنجليزية' : 'Enter title in English'}
                         className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                       />
                     </motion.div>
@@ -828,7 +900,7 @@ else {
                         id="description_en"
                         value={formData.description_en}
                         onChange={(e) => setFormData({ ...formData, description_en: e.target.value })}
-                        placeholder={t('enter_description_en')}
+                        placeholder={language === 'ar' ? 'أدخل الوصف باللغة الإنجليزية' : 'Enter description in English'}
                         rows={4}
                         className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                       />
@@ -844,33 +916,19 @@ else {
                       transition={{ delay: 0.05 }}
                     >
                       <Label htmlFor="link_en" className="dark:text-gray-200">{t('link_to_english_item')}</Label>
-                      {/* <select
-                        id="link_en"
-                        className="mt-1 w-full rounded border border-gray-300 p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                        value={selectedEnglishDocumentId}
-                        onChange={(e) => setSelectedEnglishDocumentId(e.target.value)}
-                      >
-                        <option value="">{t('select_english_item')}</option>
-                        {englishItemsForDropdown.map((opt) => (
-                          <option key={opt.documentId || opt.id} value={opt.documentId || ''}>
-                            {opt.title || `#${opt.id}`}
-                          </option>
-                        ))}
-                      </select> */}
                       <select
                         id="link_en"
                         className="mt-1 w-full rounded border border-gray-300 p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                         value={selectedEnglishDocumentId}
                         onChange={(e) => handleEnglishItemSelect(e.target.value)}
                       >
-                        <option value="">{t('select_english_item')}</option>
+                        <option value="">{language === 'ar' ? 'اختر العنصر الإنجليزي المرتبط' : 'Select English item to link'}</option>
                         {englishItemsForDropdown.map((opt) => (
                           <option key={opt.documentId} value={opt.documentId}>
                             {opt.title || `#${opt.id}`}
                           </option>
                         ))}
                       </select>
-
                     </motion.div>
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -882,7 +940,7 @@ else {
                         id="title_ar"
                         value={formData.title_ar}
                         onChange={(e) => setFormData({ ...formData, title_ar: e.target.value })}
-                        placeholder={t('enter_title_ar')}
+                        placeholder={language === 'ar' ? 'أدخل العنوان باللغة العربية' : 'Enter title in Arabic'}
                         className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                         dir="rtl"
                       />
@@ -897,7 +955,7 @@ else {
                         id="description_ar"
                         value={formData.description_ar}
                         onChange={(e) => setFormData({ ...formData, description_ar: e.target.value })}
-                        placeholder={t('enter_description_ar')}
+                        placeholder={language === 'ar' ? 'أدخل الوصف باللغة العربية' : 'Enter description in Arabic'}
                         rows={4}
                         className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                         dir="rtl"
@@ -905,6 +963,32 @@ else {
                     </motion.div>
                   </div>
                 )}
+
+                {/* Video URL Field */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                >
+                  <Label htmlFor="videoUrl" className="dark:text-gray-200 flex items-center">
+                    <Video className="w-4 h-4 mr-2" />
+                    {language === 'ar' ? 'رابط الفيديو' : 'Video URL'}
+                  </Label>
+                  <Input
+                    id="videoUrl"
+                    type="url"
+                    value={formData.videoUrl}
+                    onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
+                    placeholder={language === 'ar' ? 'أدخل رابط الفيديو' : 'Enter video URL'}
+                    className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                  />
+                  <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
+                    {language === 'ar' 
+                      ? 'يمكنك إضافة رابط فيديو من YouTube أو أي منصة أخرى لجعل خدمتك أكثر جاذبية! 🎥' 
+                      : 'Pro tip: Add a video URL from YouTube or other platforms to make your service more engaging! 🎥'
+                    }
+                  </p>
+                </motion.div>
 
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -973,8 +1057,17 @@ else {
                     disabled={isSaving}
                     className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-800 disabled:opacity-50"
                   >
-                    <Save className="w-4 h-4 mr-2" />
-                    {isSaving ? t('loading') || 'Loading...' : (editingServiceItem ? t('update') : t('save'))}
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {language === 'ar' ? 'جاري الحفظ...' : 'Saving...'}
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        {editingServiceItem ? t('update') : t('save')}
+                      </>
+                    )}
                   </Button>
                 </motion.div>
               </div>

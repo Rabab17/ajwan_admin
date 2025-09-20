@@ -5,24 +5,32 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import Swal from "sweetalert2";
 import {
   Plus,
   Edit,
   Trash2,
   Search,
-  Calendar,
-  User,
   Save,
   X,
-  Clock,
+  ImageIcon,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Clock,
+  Languages,
+  Video,
+  Link
 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+
+// Prefer configured backend URL; fallback to localhost for dev
+const API_BASE = 'http://localhost:1337';
+console.log("API_BASE:", API_BASE);
 
 const ProjectsManager = () => {
   const { t, language } = useLanguage();
@@ -34,119 +42,244 @@ const ProjectsManager = () => {
   const [editingProject, setEditingProject] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [activeTab, setActiveTab] = useState('en');
   const [formData, setFormData] = useState({
-    productName: '',
-    productDescription: '',
+    productName_en: '',
+    productName_ar: '',
+    productDescription_en: '',
+    productDescription_ar: '',
     Availability: true,
     productImages: [],
-    productVideo: null,
+    videoUrl: '',
     service_ajwains: ''
   });
-  const [existingMedia, setExistingMedia] = useState({ 
-    imageIds: [], 
-    videoId: null, 
-    images: [], 
-    video: null,
+  const [existingMedia, setExistingMedia] = useState({
+    imageIds: [],
+    images: [],
     imagesToDelete: []
   });
 
-  // Load projects from Strapi
-  const loadProjects = async () => {
-    const TOKEN = localStorage.getItem('token');
-    try {
-      const url = language === 'ar' 
-        ? 'http://localhost:1337/api/product-ajwans?populate=*&locale=ar-SA'
-        : 'http://localhost:1337/api/product-ajwans?populate=*';
-      
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${TOKEN}` }
-      });
-      
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Failed to fetch projects: ${res.status} ${err}`);
+  // New: manage separate forms and Arabic linking to English via documentId
+  const [formLanguage, setFormLanguage] = useState(language); // 'en' | 'ar'
+  const [englishProjectsForDropdown, setEnglishProjectsForDropdown] = useState([]); // {documentId, id, productName}
+  const [selectedEnglishDocumentId, setSelectedEnglishDocumentId] = useState('');
+  const [editingProjectId, setEditingProjectId] = useState(null);
+
+  // Enhanced token retrieval with user-friendly error messages
+  const getValidToken = () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error('Oops! It looks like you\'re not signed in 🔐 Please log in to continue');
+      throw new Error('Authentication token missing');
+    }
+    return token;
+  };
+
+  // Enhanced response checking with friendly error messages
+  const checkResponse = async (response) => {
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem('token');
+        toast.error('Your session has expired 🕐 Please sign in again to continue working on your projects');
+        throw new Error('Authentication failed');
       }
-      
-      const json = await res.json();
-      const mapped = (json.data || []).map(item => {
-        const attrs = item.attributes || item || {};
+
+      const errorText = await response.text();
+      console.error(`Server error: ${response.status}`, errorText);
+      toast.error('Something went wrong on our end 😔 Please try again in a moment');
+      throw new Error(`Server error: ${response.status}`);
+    }
+    return response;
+  };
+
+  // Enhanced project loading with friendly error messages
+  const loadProjects = async () => {
+    let lang = language || 'en';
+
+    if (lang === 'ar') {
+      lang = 'ar-SA';
+    }
+
+    console.log("🌍 Current language:", lang);
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/product-ajwans?populate=*&locale=${lang}`
+      );
+      console.log("response", response);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("📦 Fetched projects:", data);
+
+      const formatted = data.data.map(item => {
+        const attrs = item.attributes || item;
         return {
           id: item.id,
-          documentId: attrs.documentId || item.documentId,
-          productName: attrs.productName || item.productName || '',
-          productDescription: attrs.productDescription || item.productDescription || '',
+          documentId: attrs.documentId,
+          productName: attrs.productName,
+          productDescription: attrs.productDescription,
           Availability: attrs.Availability !== undefined ? attrs.Availability : true,
-          productImages: attrs.productImages?.data || item.productImages || [],
-          productVideo: attrs.productVideo?.data || item.productVideo || null,
-          service_ajwains: attrs.service_ajwains?.data || item.service_ajwains || [],
+          locale: attrs.locale,
+          productImages: normalizeImages(attrs.productImages),
+          videoUrl: attrs.videoUrl || '',
+          service_ajwains: attrs.service_ajwains?.data || attrs.service_ajwains || [],
           createdAt: ((attrs.createdAt || item.createdAt) || '').slice(0, 10),
           updatedAt: ((attrs.updatedAt || item.updatedAt) || '').slice(0, 10)
         };
       });
-      
-      setProjects(mapped);
-    } catch (e) {
-      console.error('loadProjects error', e);
-      setProjects([]);
+
+      setProjects(formatted);
+    } catch (err) {
+      console.error("Error loading projects:", err);
+      toast.error("We're having trouble loading your projects right now 📂 Please refresh the page or try again later");
     }
   };
 
-  useEffect(() => { 
-    loadProjects(); 
+  useEffect(() => {
+    loadProjects();
   }, [language]);
 
   const filteredProjects = projects.filter(project =>
     project.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    project.productDescription.toLowerCase().includes(searchTerm.toLowerCase())
+    project.productDescription.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (project.service_ajwains && project.service_ajwains.some(s => 
+      s.attributes?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+    ))
   );
 
-  const handleAddProject = () => {
+  // New: start add flow with specific language
+  const startAddProject = async (lang) => {
     setEditingProject(null);
+    setFormLanguage(lang);
+    console.log("setFormLanguage", setFormLanguage(lang));
+    
     setFormData({
-      productName: '',
-      productDescription: '',
+      productName_en: '',
+      productName_ar: '',
+      productDescription_en: '',
+      productDescription_ar: '',
       Availability: true,
       productImages: [],
-      productVideo: null,
+      videoUrl: '',
       service_ajwains: ''
     });
     setExistingMedia({ 
       imageIds: [], 
-      videoId: null, 
       images: [], 
-      video: null,
       imagesToDelete: []
     });
+    setSelectedEnglishDocumentId('');
+
+    if (lang === 'ar') {
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/product-ajwans?locale=en&populate=productImages`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token')}`,
+            },
+          }
+        );
+        const data = await response.json();
+
+        console.log("📌 English Projects Response:", data);
+
+        setEnglishProjectsForDropdown(data.data || []);
+      } catch (error) {
+        console.error("Error loading English projects:", error);
+        toast.error("We couldn't load the English projects for linking 🔗 Please try again");
+      }
+    }
+
     setShowForm(true);
+  };
+
+  const handleEnglishProjectSelect = (docId) => {
+    setSelectedEnglishDocumentId(docId);
+
+    const selectedProject = projects.find(
+      (project) => project.documentId === docId
+    );
+
+    if (selectedProject) {
+      const images = normalizeImages(selectedProject.productImages);
+      setExistingMedia({
+        imageIds: images.map((img) => img.id),
+        images,
+        imagesToDelete: [],
+      });
+      
+      setFormData(prev => ({
+        ...prev,
+        videoUrl: selectedProject.videoUrl || ''
+      }));
+    }
+  };
+
+  // New: load English projects for Arabic linking
+  const loadEnglishProjectsForDropdown = async () => {
+    try {
+      const TOKEN = getValidToken();
+      const res = await fetch(`${API_BASE}/api/product-ajwans?populate=*&locale=en`, {
+        headers: {
+          'Authorization': `Bearer ${TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      await checkResponse(res);
+      const json = await res.json();
+      const options = (json.data || []).map((item) => {
+        const attrs = item.attributes || {};
+        return { 
+          documentId: attrs.documentId, 
+          id: item.id, 
+          productName: attrs.productName || '' 
+        };
+      });
+      setEnglishProjectsForDropdown(options);
+    } catch (e) {
+      console.error('Failed to load English projects for dropdown', e);
+      toast.error('We had trouble loading the English projects 📝 Please refresh and try again');
+      setEnglishProjectsForDropdown([]);
+    }
   };
 
   const handleEditProject = (project) => {
     setEditingProject(project);
     const imagesArray = Array.isArray(project.productImages) ? project.productImages : (project.productImages?.data || []);
-    const videoArray = Array.isArray(project.productVideo) ? project.productVideo : (project.productVideo?.data || []);
     const imageIds = imagesArray.map(i => i.id).filter(Boolean);
-    const videoId = videoArray[0]?.id || null;
-    
-    setExistingMedia({ 
-      imageIds, 
-      videoId, 
-      images: imagesArray, 
-      video: videoArray[0] || null,
+
+    setExistingMedia({
+      imageIds,
+      images: imagesArray,
       imagesToDelete: []
     });
-    
+
     setFormData({
-      productName: project.productName || '',
-      productDescription: project.productDescription || '',
+      productName_en: project.productName || '',
+      productName_ar: project.productName || '',
+      productDescription_en: project.productDescription || '',
+      productDescription_ar: project.productDescription || '',
       Availability: project.Availability !== undefined ? project.Availability : true,
       productImages: [],
-      productVideo: null,
+      videoUrl: project.videoUrl || '',
       service_ajwains: (project.service_ajwains || []).map(s => s.id).join(',')
     });
     setShowForm(true);
   };
 
-  // دالة جديدة: حذف صورة موجودة
+  const handleFileChange = (e, fieldName) => {
+    const files = Array.from(e.target.files);
+    setFormData(prev => ({
+      ...prev,
+      [fieldName]: fieldName === 'productImages' ? [...prev[fieldName], ...files] : files[0]
+    }));
+  };
+
   const handleRemoveExistingImage = (imageId) => {
     setExistingMedia(prev => ({
       ...prev,
@@ -155,7 +288,6 @@ const ProjectsManager = () => {
     }));
   };
 
-  // دالة جديدة: حذف صورة جديدة تم اختيارها
   const handleRemoveNewImage = (index) => {
     setFormData(prev => ({
       ...prev,
@@ -166,263 +298,362 @@ const ProjectsManager = () => {
   const handleSaveProject = async () => {
     if (isSaving) return;
     setIsSaving(true);
-    const TOKEN = localStorage.getItem('token');
 
-    // التحقق من البيانات المطلوبة
-    if (!formData.productName.trim()) {
-      toast.error(t('project_name_required') || 'Project name is required');
-      setIsSaving(false);
-      return;
-    }
+    try {
+      const TOKEN = getValidToken();
+      if (!TOKEN) throw new Error("Authentication token missing");
 
-    // حذف الصور المحددة للحذف أولاً
-    if (existingMedia.imagesToDelete.length > 0) {
-      try {
-        await Promise.all(
-          existingMedia.imagesToDelete.map(async (imageId) => {
-            const deleteResponse = await fetch(`http://localhost:1337/api/upload/files/${imageId}`, {
-              method: 'DELETE',
-              headers: {
-                'Authorization': `Bearer ${TOKEN}`
-              }
-            });
-            if (!deleteResponse.ok) {
-              console.error(`Failed to delete image ${imageId}`);
-            }
-          })
-        );
-      } catch (error) {
-        console.error('Error deleting images:', error);
+      // Enhanced validation with friendly messages
+      if (formLanguage === "en") {
+        if (!formData.productName_en?.trim()) {
+          toast.error("Please give your project a name before continuing 🏷️");
+          setIsSaving(false);
+          return;
+        }
+        if (!formData.productDescription_en?.trim()) {
+          toast.error("Don't forget to add a description! It helps others understand your project 📝");
+          setIsSaving(false);
+          return;
+        }
+      } else if (formLanguage === "ar") {
+        if (!formData.productName_ar?.trim()) {
+          toast.error("يرجى إدخال اسم للمشروع قبل المتابعة 🏷️");
+          setIsSaving(false);
+          return;
+        }
+        if (!formData.productDescription_ar?.trim()) {
+          toast.error("لا تنسَ إضافة وصف للمشروع! يساعد الآخرين على فهم مشروعك 📝");
+          setIsSaving(false);
+          return;
+        }
+        if (!editingProject && !selectedEnglishDocumentId) {
+          toast.error("يرجى اختيار المشروع الإنجليزي المرتبط بهذه الترجمة 🔗");
+          setIsSaving(false);
+          return;
+        }
       }
-    }
 
-    const filesToUpload = [];
-    if (formData.productImages && formData.productImages.length > 0) {
-      for (const file of formData.productImages) filesToUpload.push({ fieldName: 'productImages', file });
-    }
-    if (formData.productVideo) {
-      filesToUpload.push({ fieldName: 'productVideo', file: formData.productVideo });
-    }
-    
-    let uploadedFiles = [];
-    if (filesToUpload.length > 0) {
-      const uploadFormData = new FormData();
-      filesToUpload.forEach(item => {
-        uploadFormData.append('files', item.file);
-      });
+      // Delete marked images with user feedback
+      if (existingMedia.imagesToDelete.length > 0) {
+        try {
+          await Promise.all(
+            existingMedia.imagesToDelete.map(async (imageId) => {
+              const deleteResponse = await fetch(`${API_BASE}/api/upload/files/${imageId}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${TOKEN}`
+                }
+              });
+              if (!deleteResponse.ok) {
+                console.error(`Failed to delete image ${imageId}`);
+              }
+            })
+          );
+        } catch (error) {
+          console.error('Error deleting images:', error);
+          toast.error("We had trouble removing some of the old images, but your project will still be saved 📸");
+        }
+      }
 
-      try {
-        const uploadResponse = await fetch('http://localhost:1337/api/upload', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${TOKEN}`
-          },
-          body: uploadFormData,
+      // Upload new files
+      let uploadedFiles = [];
+      const filesToUpload = [];
+      
+      if (formData.productImages && formData.productImages.length > 0) {
+        for (const file of formData.productImages) filesToUpload.push({ fieldName: 'productImages', file });
+      }
+
+      if (filesToUpload.length > 0) {
+        const uploadFormData = new FormData();
+        filesToUpload.forEach(item => {
+          uploadFormData.append('files', item.file);
         });
 
-        if (!uploadResponse.ok) {
-          const errorText = await uploadResponse.text();
-          console.error('Upload failed:', uploadResponse.status, errorText);
-          throw new Error('File upload failed');
-        }
-
-        uploadedFiles = await uploadResponse.json();
-
-      } catch (error) {
-        console.error('Error uploading files:', error);
-        toast.error(t('upload_error') || 'Error uploading files');
-        setIsSaving(false);
-        return;
-      }
-    }
-    
-    // إعداد البيانات النهائية بشكل صحيح
-    const finalData = { 
-      productName: formData.productName, 
-      productDescription: formData.productDescription,
-      Availability: formData.Availability,
-      // سنتعامل مع الصور والفيديو بشكل منفصل
-    };
-    
-    // معالجة الملفات المرفوعة
-    if (uploadedFiles.length > 0) {
-      const imagesIds = [];
-      const originalImageNames = Array.isArray(formData.productImages) ? formData.productImages.map(f => f.name) : [];
-      const videoName = formData.productVideo?.name;
-      
-      for (const f of uploadedFiles) {
-        if (videoName && f.name === videoName) {
-          finalData.productVideo = f.id;
-        } else if (originalImageNames.includes(f.name)) {
-          imagesIds.push(f.id);
+        try {
+          const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${TOKEN}` },
+            body: uploadFormData,
+          });
+          await checkResponse(uploadResponse);
+          uploadedFiles = await uploadResponse.json();
+        } catch (error) {
+          toast.error("We couldn't upload your images right now 📸 Please try again or save without images for now");
+          setIsSaving(false);
+          return;
         }
       }
-      
-      // إضافة الصور الجديدة إلى البيانات النهائية
-      if (imagesIds.length > 0) {
-        finalData.productImages = imagesIds;
-      }
-    }
-    
-    // معالجة العلاقات - التأكد من أنها مصفوفات من الأرقام
-    if (formData.service_ajwains) {
-      const serviceIds = formData.service_ajwains.toString()
-        .split(',')
-        .map(s => s.trim())
-        .filter(s => s !== '')
-        .map(s => parseInt(s))
-        .filter(n => !isNaN(n));
-      
-      if (serviceIds.length > 0) {
-        finalData.service_ajwains = serviceIds;
-      }
-    }
 
-    // الحفاظ على الوسائط الموجودة عند التحديث إذا لم يتم استبدالها أو حذفها
-    if (editingProject) {
-      if (!formData.productVideo && existingMedia.videoId && !finalData.productVideo) {
-        finalData.productVideo = existingMedia.videoId;
-      }
-      
-      // إضافة الصور القديمة المتبقية (غير المحذوفة)
-      const remainingImages = existingMedia.images
-        .filter(img => !existingMedia.imagesToDelete.includes(img.id))
-        .map(img => img.id);
-        
-      if (remainingImages.length > 0) {
-        finalData.productImages = finalData.productImages 
-          ? [...finalData.productImages, ...remainingImages] 
-          : remainingImages;
-      }
-    }
-    
-    // التأكد من أن productImages و productVideo موجودين حتى لو كانوا فارغين
-    if (!finalData.productImages) finalData.productImages = [];
-    if (!finalData.productVideo) finalData.productVideo = null;
-    
-    const payload = { data: finalData };
-    
-    // تسجيل البيانات المرسلة للتdebug
-    console.log('Payload being sent:', payload);
-    
-    try {
-      // تحديد endpoint و method المناسبين
-      let apiEndpoint = 'http://localhost:1337/api/product-ajwans';
-      let method = 'POST';
-      
-      if (editingProject) {
-        if (editingProject.documentId) {
-          apiEndpoint = `http://localhost:1337/api/product-ajwans/${editingProject.documentId}`;
-          method = 'PUT';
+      // CREATE
+      if (!editingProject) {
+        if (formLanguage === "en") {
+          const finalDataEn = {
+            data: {
+              productName: formData.productName_en,
+              productDescription: formData.productDescription_en,
+              Availability: formData.Availability,
+              videoUrl: formData.videoUrl || undefined,
+              locale: "en",
+            },
+          };
+          
+          if (uploadedFiles.length > 0) {
+            const imagesIds = [];
+            const originalImageNames = Array.isArray(formData.productImages) ? formData.productImages.map(f => f.name) : [];
+            
+            for (const f of uploadedFiles) {
+              if (originalImageNames.includes(f.name)) {
+                imagesIds.push(f.id);
+              }
+            }
+            
+            if (imagesIds.length > 0) {
+              finalDataEn.data.productImages = imagesIds;
+            }
+          }
+          
+          if (formData.service_ajwains) {
+            const serviceIds = formData.service_ajwains.toString()
+              .split(',')
+              .map(s => s.trim())
+              .filter(s => s !== '')
+              .map(s => parseInt(s))
+              .filter(n => !isNaN(n));
+            
+            if (serviceIds.length > 0) {
+              finalDataEn.data.service_ajwains = serviceIds;
+            }
+          }
+
+          const enResp = await fetch(`${API_BASE}/api/product-ajwans?locale=en`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${TOKEN}`,
+            },
+            body: JSON.stringify(finalDataEn),
+          });
+          await checkResponse(enResp);
         } else {
-          apiEndpoint = `http://localhost:1337/api/product-ajwans/${editingProject.id}`;
-          method = 'PUT';
+          const finalDataAr = {
+            data: {
+              productName: formData.productName_ar,
+              productDescription: formData.productDescription_ar,
+              Availability: formData.Availability,
+              videoUrl: formData.videoUrl || undefined,
+            },
+          };
+          
+          if (uploadedFiles.length > 0) {
+            const imagesIds = [];
+            const originalImageNames = Array.isArray(formData.productImages) ? formData.productImages.map(f => f.name) : [];
+            
+            for (const f of uploadedFiles) {
+              if (originalImageNames.includes(f.name)) {
+                imagesIds.push(f.id);
+              }
+            }
+            
+            if (imagesIds.length > 0) {
+              finalDataAr.data.productImages = imagesIds;
+            }
+          }
+          
+          if (formData.service_ajwains) {
+            const serviceIds = formData.service_ajwains.toString()
+              .split(',')
+              .map(s => s.trim())
+              .filter(s => s !== '')
+              .map(s => parseInt(s))
+              .filter(n => !isNaN(n));
+            
+            if (serviceIds.length > 0) {
+              finalDataAr.data.service_ajwains = serviceIds;
+            }
+          }
+
+          const arResp = await fetch(
+            `${API_BASE}/api/product-ajwans/${selectedEnglishDocumentId}?locale=ar-SA`,
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${TOKEN}`,
+              },
+              body: JSON.stringify(finalDataAr),
+            }
+          );
+          await checkResponse(arResp);
         }
       }
+      // UPDATE
+      else {
+        const updateProject = async (documentId, locale, data) => {
+          if (!documentId) throw new Error("Document ID missing");
+          console.log("Updating documentId:", documentId, "with locale:", locale, "and data:", data);
 
-      const projectResponse = await fetch(apiEndpoint, {
-        method: method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${TOKEN}`
-        },
-        body: JSON.stringify(payload),
-      });
+          const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
 
-      if (!projectResponse.ok) {
-        const errorData = await projectResponse.json();
-        console.error('Failed to save project data:', errorData);
-        
-        // عرض رسالة الخطأ للمستخدم
-        const errorMessage = errorData.error?.message || 'Failed to save project data';
-        toast.error(errorMessage);
-        
-        throw new Error('Failed to save project data');
+          const response = await fetch(
+            `${API_BASE}/api/product-ajwans/${documentId}?locale=${locale}`, {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${TOKEN}`,
+              },
+              body: JSON.stringify({
+                data: cleanData
+              }),
+            }
+          );
+          await checkResponse(response);
+          return await response.json();
+        };
+
+        const getFinalProductImages = (existingImages) => {
+          const keptImages = existingImages
+            .filter(img => !existingMedia.imagesToDelete.includes(img.id))
+            .map(img => img.id);
+          const newImages = uploadedFiles
+            .filter(f => formData.productImages.some(img => img.name === f.name))
+            .map(f => f.id);
+          return [...keptImages, ...newImages];
+        };
+
+        const targetDocumentId = editingProject.documentId;
+        const targetLocale = editingProject.locale;
+
+        if (!targetDocumentId) {
+          toast.error("Hmm, something went wrong with the project ID 🤔 Please try refreshing and editing again");
+          setIsSaving(false);
+          return;
+        }
+
+        const finalData = {
+          productName: formLanguage === "en" ? formData.productName_en : formData.productName_ar,
+          productDescription: formLanguage === "en" ? formData.productDescription_en : formData.productDescription_ar,
+          Availability: formData.Availability,
+          videoUrl: formData.videoUrl || undefined,
+          productImages: getFinalProductImages(editingProject.productImages || []),
+          service_ajwains: formData.service_ajwains ? 
+            formData.service_ajwains.toString()
+              .split(',')
+              .map(s => s.trim())
+              .filter(s => s !== '')
+              .map(s => parseInt(s))
+              .filter(n => !isNaN(n)) : undefined
+        };
+
+        await updateProject(targetDocumentId, targetLocale, finalData);
       }
 
-      const result = await projectResponse.json();
-      console.log('Save successful:', result);
-      
-      // إعادة تحميل القائمة بعد الحفظ
-      try { 
-        await loadProjects(); 
-      } catch (e) { 
-        console.error('reload after save failed', e); 
-      }
-      
+      // Success actions
+      await loadProjects();
       setShowForm(false);
       setEditingProject(null);
-      setExistingMedia({ imageIds: [], videoId: null, images: [], video: null, imagesToDelete: [] });
-      toast.success(editingProject ? t('update') + ' ' + t('success') : t('save') + ' ' + t('success'));
-
+      setExistingMedia({ 
+        imageIds: [], 
+        images: [], 
+        imagesToDelete: []
+      });
+      
+      if (editingProject) {
+        toast.success("Perfect! Your project has been updated successfully 🎉");
+      } else {
+        toast.success("Great! Your new project has been created and saved 🎉");
+      }
     } catch (error) {
-      console.error('Error saving project:', error);
-      toast.error(t('error') || 'Error while saving');
+      console.error("Error saving project:", error);
+      if (error.message.includes('Authentication')) {
+        toast.error("Your session expired 🔐 Please log in again to save your project");
+      } else {
+        toast.error("We couldn't save your project right now 😔 Please check your connection and try again");
+      }
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDeleteProject = async (project) => {
-    const TOKEN = localStorage.getItem('token');
+  const handleDeleteProject = async (documentId) => {
     try {
-      setDeletingId(project.id || project.documentId);
-      const del = await fetch(`http://localhost:1337/api/product-ajwans/${project.documentId || project.id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${TOKEN}` }
+      const result = await Swal.fire({
+        title: "Are you sure about this?",
+        text: "This will permanently delete your project and you won't be able to get it back! 💔",
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#ef4444",
+        cancelButtonColor: "#6b7280",
+        confirmButtonText: "Yes, delete it",
+        cancelButtonText: "Keep it safe",
+        background: theme === 'dark' ? '#374151' : '#ffffff',
+        color: theme === 'dark' ? '#f3f4f6' : '#1f2937',
       });
-      if (!del.ok) throw new Error('delete failed');
-      setProjects(projects.filter(p => p.documentId !== project.documentId && p.id !== project.id));
-      toast.success(t('deleted') || 'Deleted');
-    } catch (e) {
-      console.error(e);
-      toast.error(t('error') || 'Delete failed');
-    } finally {
-      setDeletingId(null);
+
+      if (!result.isConfirmed) return;
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        toast.error("You need to be logged in to delete projects 🔐 Please sign in and try again");
+        return;
+      }
+
+      const response = await fetch(`${API_BASE}/api/product-ajwans/${documentId}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to delete project");
+
+      // Update UI after deletion
+      setProjects((prev) => prev.filter((project) => project.documentId !== documentId));
+
+      toast.success("All done! Your project has been deleted 🗑️");
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error("We couldn't delete your project right now 😔 Please try again in a moment");
     }
   };
-
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      'pending': { label: t('pending'), color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100', icon: Clock },
-      'in-progress': { label: t('in_progress'), color: 'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100', icon: AlertCircle },
-      'completed': { label: t('completed'), color: 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100', icon: CheckCircle }
-    }
-    return statusConfig[status] || statusConfig['pending']
-  }
-
-  const getPriorityBadge = (priority) => {
-    const priorityConfig = {
-      'low': { label: t('low'), color: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200' },
-      'medium': { label: t('medium'), color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100' },
-      'high': { label: t('high'), color: 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100' }
-    }
-    return priorityConfig[priority] || priorityConfig['medium']
-  }
 
   const getMediaUrl = (media) => {
     if (!media) return null;
-    if (Array.isArray(media)) return getMediaUrl(media[0]);
+
     const url = media.attributes?.url || media.url;
-    if (typeof url !== 'string') return null;
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return `http://localhost:1337${url}`;
+    if (!url || typeof url !== "string") return null;
+
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url;
+    }
+
+    return `${API_BASE}${url}`;
   };
 
-  // مكون جديد لعرض الصور مع زر الحذف
   const ImageWithDelete = ({ image, onRemove, isExisting = false }) => {
     const [isHovered, setIsHovered] = useState(false);
-    
+
+    let imageSrc;
+    if (isExisting) {
+      imageSrc = getMediaUrl(image);
+    } else if (image instanceof File) {
+      imageSrc = URL.createObjectURL(image);
+    } else if (typeof image === "string") {
+      imageSrc = image;
+    } else if (image?.url) {
+      imageSrc = getMediaUrl(image);
+    }
+
     return (
-      <motion.div 
+      <motion.div
         className="relative inline-block m-1"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         whileHover={{ scale: 1.05 }}
       >
-        <img 
-          src={isExisting ? getMediaUrl(image) : URL.createObjectURL(image)} 
-          alt="preview" 
+        <img
+          src={imageSrc}
+          alt="preview"
           className="w-16 h-16 object-cover rounded border"
         />
         <AnimatePresence>
@@ -477,6 +708,29 @@ const ProjectsManager = () => {
     }
   }
 
+  const normalizeImages = (productImages) => {
+    if (!productImages) return [];
+    if (productImages.data) {
+      return productImages.data.map((img) => {
+        const rawUrl = img.attributes?.url;
+        if (!rawUrl) return null;
+        return {
+          id: img.id,
+          url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
+          name: img.attributes?.name,
+        };
+      }).filter(Boolean);
+    }
+    return productImages.map((img) => {
+      if (!img.url) return null;
+      return {
+        id: img.id,
+        url: img.url.startsWith("http") ? img.url : `${API_BASE}${img.url}`,
+        name: img.name,
+      };
+    }).filter(Boolean);
+  };
+
   return (
     <motion.div
       variants={containerVariants}
@@ -496,11 +750,18 @@ const ProjectsManager = () => {
             whileTap={{ scale: 0.98 }}
           >
             <Button
-              onClick={handleAddProject}
-              className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-808"
+              onClick={() => startAddProject('en')}
+              className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-800"
             >
               <Plus className="w-4 h-4 mr-2" />
-              {t('add_new_project')}
+              {t('add_new_project')} (EN)
+            </Button>
+            <Button
+              onClick={() => startAddProject('ar')}
+              className="ml-2 bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-700 dark:hover:bg-emerald-800"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              {t('add_new_project')} (AR)
             </Button>
           </motion.div>
         </div>
@@ -527,10 +788,13 @@ const ProjectsManager = () => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('image')}</th>
                     <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('project_name')}</th>
                     <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('description')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 text-center`}>{t('images')}</th>
                     <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('availability')}</th>
+                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 text-center`}>
+                      {t('video')}
+                    </th>
                     <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('created_at')}</th>
                     <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-center' : 'text-center'}`}>{t('actions')}</th>
                   </tr>
@@ -539,7 +803,7 @@ const ProjectsManager = () => {
                   <AnimatePresence>
                     {filteredProjects.map((project, index) => (
                       <motion.tr
-                        key={project.id}
+                        key={project.id || index}
                         variants={tableRowVariants}
                         initial="hidden"
                         animate="visible"
@@ -549,27 +813,50 @@ const ProjectsManager = () => {
                         className="border-b border-gray-100 dark:border-gray-700"
                       >
                         <td className="py-4 px-4">
-                          <div className="font-medium text-gray-900 dark:text-white">{project.productName || '-'}</div>
+                          {project.productImages && project.productImages.length > 0 ? (
+                            <img
+                              src={getMediaUrl(project.productImages[0])}
+                              alt="project"
+                              className="inline-block w-12 h-12 object-cover rounded"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center dark:bg-gray-700">
+                              <ImageIcon className="w-6 h-6 text-gray-400" />
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="font-medium text-gray-900 dark:text-white">
+                            {project.productName || '-'}
+                          </div>
                         </td>
                         <td className="py-4 px-4">
                           <div className="text-sm text-gray-600 dark:text-gray-300 max-w-xs truncate">
                             {project.productDescription || '-'}
                           </div>
                         </td>
-                        <td className="py-4 px-4 text-center">
-                          {getMediaUrl(project.productImages) ? (
-                            <img src={getMediaUrl(project.productImages)} alt="project" className="inline-block w-12 h-12 object-cover rounded" />
-                          ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )}
-                        </td>
                         <td className="py-4 px-4">
                           <Badge className={`${project.Availability ? 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100'} border-0`}>
                             {project.Availability ? t('available') : t('unavailable')}
                           </Badge>
                         </td>
+                        <td className="py-4 px-4 text-center">
+                          {project.videoUrl ? (
+                            <a 
+                              href={project.videoUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-500 hover:text-blue-700 flex items-center justify-center"
+                            >
+                              <Video className="w-4 h-4 mr-1" />
+                              {t('view_video')}
+                            </a>
+                          ) : (
+                            <span className="text-gray-400 text-sm">-</span>
+                          )}
+                        </td>
                         <td className="py-4 px-4 text-gray-500 dark:text-gray-400">
-                          {project.createdAt}
+                          {project.createdAt || '-'}
                         </td>
                         <td className="py-4 px-4">
                           <div className="flex items-center justify-center space-x-2">
@@ -584,8 +871,7 @@ const ProjectsManager = () => {
                             <motion.button
                               whileHover={{ scale: 1.1 }}
                               whileTap={{ scale: 0.9 }}
-                              onClick={() => handleDeleteProject(project)}
-                              disabled={deletingId === (project.id || project.documentId)}
+                              onClick={() => handleDeleteProject(project.documentId)}
                               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -633,60 +919,140 @@ const ProjectsManager = () => {
               </div>
 
               <div className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                  >
-                    <Label htmlFor="productName" className="dark:text-gray-200">{t('project_name')}</Label>
-                    <Input
-                      id="productName"
-                      value={formData.productName}
-                      onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
-                      placeholder={t('enter_project_name')}
-                      className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                    />
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                  >
-                    <Label htmlFor="Availability" className="dark:text-gray-200">{t('availability')}</Label>
-                    <select
-                      id="Availability"
-                      value={formData.Availability}
-                      onChange={(e) => setFormData({ ...formData, Availability: e.target.value === 'true' })}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                {formLanguage === 'en' && (
+                  <div className="space-y-4 mt-2">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.1 }}
                     >
-                      <option value={true}>{t('available')}</option>
-                      <option value={false}>{t('unavailable')}</option>
-                    </select>
-                  </motion.div>
-                </div>
+                      <Label htmlFor="productName_en" className="dark:text-gray-200">{t('project_name')} (English)</Label>
+                      <Input
+                        id="productName_en"
+                        value={formData.productName_en}
+                        onChange={(e) => setFormData({ ...formData, productName_en: e.target.value })}
+                        placeholder="What would you like to call your project?"
+                        className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      />
+                    </motion.div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.2 }}
+                    >
+                      <Label htmlFor="productDescription_en" className="dark:text-gray-200">{t('project_description')} (English)</Label>
+                      <Textarea
+                        id="productDescription_en"
+                        value={formData.productDescription_en}
+                        onChange={(e) => setFormData({ ...formData, productDescription_en: e.target.value })}
+                        placeholder="Tell us about your project! What makes it special?"
+                        rows={4}
+                        className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      />
+                    </motion.div>
+                  </div>
+                )}
+
+                {formLanguage === 'ar' && (
+                  <div className="space-y-4 mt-2">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.05 }}
+                    >
+                      <Label htmlFor="link_en" className="dark:text-gray-200">{t('link_to_english_project')}</Label>
+                      <select
+                        id="link_en"
+                        className="mt-1 w-full rounded border border-gray-300 p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                        value={selectedEnglishDocumentId}
+                        onChange={(e) => handleEnglishProjectSelect(e.target.value)}
+                      >
+                        <option value="">Which English project should this be linked to?</option>
+                        {englishProjectsForDropdown.map((opt) => (
+                          <option key={opt.documentId} value={opt.documentId}>
+                            {opt.productName || `#${opt.id}`}
+                          </option>
+                        ))}
+                      </select>
+                    </motion.div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.1 }}
+                    >
+                      <Label htmlFor="productName_ar" className="dark:text-gray-200">{t('project_name')} (العربية)</Label>
+                      <Input
+                        id="productName_ar"
+                        value={formData.productName_ar}
+                        onChange={(e) => setFormData({ ...formData, productName_ar: e.target.value })}
+                        placeholder="ما اسم مشروعك؟"
+                        className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                        dir="rtl"
+                      />
+                    </motion.div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.15 }}
+                    >
+                      <Label htmlFor="productDescription_ar" className="dark:text-gray-200">{t('project_description')} (العربية)</Label>
+                      <Textarea
+                        id="productDescription_ar"
+                        value={formData.productDescription_ar}
+                        onChange={(e) => setFormData({ ...formData, productDescription_ar: e.target.value })}
+                        placeholder="أخبرنا عن مشروعك! ما الذي يجعله مميزاً؟"
+                        rows={4}
+                        className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                        dir="rtl"
+                      />
+                    </motion.div>
+                  </div>
+                )}
 
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
                 >
-                  <Label htmlFor="productDescription" className="dark:text-gray-200">{t('project_description')}</Label>
-                  <Textarea
-                    id="productDescription"
-                    value={formData.productDescription}
-                    onChange={(e) => setFormData({ ...formData, productDescription: e.target.value })}
-                    placeholder={t('enter_project_description')}
-                    rows={4}
+                  <Label htmlFor="Availability" className="dark:text-gray-200">{t('availability')}</Label>
+                  <select
+                    id="Availability"
+                    value={formData.Availability}
+                    onChange={(e) => setFormData({ ...formData, Availability: e.target.value === 'true' })}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                  >
+                    <option value={true}>{t('available')}</option>
+                    <option value={false}>{t('unavailable')}</option>
+                  </select>
+                </motion.div>
+
+                {/* Video URL Field */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                >
+                  <Label htmlFor="videoUrl" className="dark:text-gray-200 flex items-center">
+                    <Video className="w-4 h-4 mr-2" />
+                    {t('video_url')}
+                  </Label>
+                  <Input
+                    id="videoUrl"
+                    type="url"
+                    value={formData.videoUrl}
+                    onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
+                    placeholder="Got a video? Paste the link here! (YouTube, Vimeo, etc.)"
                     className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                   />
+                  <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
+                    You can add a video URL from YouTube, Vimeo, or any other platform 🎬
+                  </p>
                 </motion.div>
 
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
+                  transition={{ delay: 0.5 }}
                 >
                   <Label htmlFor="productImages" className="dark:text-gray-200">{t("project_images")}</Label>
                   <div className="mt-1 flex items-center space-x-2">
@@ -695,67 +1061,39 @@ const ProjectsManager = () => {
                       type="file"
                       accept="image/*"
                       multiple
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
-                        productImages: [...formData.productImages, ...Array.from(e.target.files || [])] 
-                      })}
+                      onChange={(e) => handleFileChange(e, 'productImages')}
                       className="flex-grow transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                     />
                     {Array.isArray(formData.productImages) && formData.productImages.length > 0 && (
-                      <span className="text-sm text-gray-500 dark:text-gray-400">{formData.productImages.length} file(s) selected</span>
+                      <span className="text-sm text-green-600 dark:text-green-400">📸 {formData.productImages.length} image(s) ready to upload!</span>
                     )}
                   </div>
-                  
-                  {/* عرض الصور الجديدة المختارة */}
+
+                  {/* Show new selected images */}
                   {formData.productImages.length > 0 && (
                     <div className="mt-3 flex flex-wrap">
                       {formData.productImages.map((file, index) => (
-                        <ImageWithDelete 
-                          key={index} 
-                          image={file} 
+                        <ImageWithDelete
+                          key={index}
+                          image={file}
                           onRemove={() => handleRemoveNewImage(index)}
                           isExisting={false}
                         />
                       ))}
                     </div>
                   )}
-                  
-                  {/* عرض الصور القديمة مع إمكانية الحذف */}
+
+                  {/* Show existing images with delete option */}
                   {editingProject && existingMedia.images?.length > 0 && (
                     <div className="mt-3 flex flex-wrap">
                       {existingMedia.images.map((img) => (
-                        <ImageWithDelete 
-                          key={img.id} 
-                          image={img} 
+                        <ImageWithDelete
+                          key={img.id}
+                          image={img}
                           onRemove={handleRemoveExistingImage}
                           isExisting={true}
                         />
                       ))}
-                    </div>
-                  )}
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                >
-                  <Label htmlFor="productVideo" className="dark:text-gray-200">{t("project_video")}</Label>
-                  <div className="mt-1 flex items-center space-x-2">
-                    <Input
-                      id="productVideo"
-                      type="file"
-                      accept="video/*"
-                      onChange={(e) => setFormData({ ...formData, productVideo: e.target.files?.[0] || null })}
-                      className="flex-grow transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                    />
-                    {formData.productVideo && (
-                      <span className="text-sm text-gray-500 dark:text-gray-400">{formData.productVideo.name}</span>
-                    )}
-                  </div>
-                  {editingProject && existingMedia.video && (
-                    <div className="mt-3">
-                      <video src={getMediaUrl(existingMedia.video)} controls className="w-full max-w-xs h-auto" />
                     </div>
                   )}
                 </motion.div>
@@ -770,7 +1108,7 @@ const ProjectsManager = () => {
                     id="service_ajwains"
                     value={formData.service_ajwains}
                     onChange={(e) => setFormData({ ...formData, service_ajwains: e.target.value })}
-                    placeholder={t("enter_related_services_comma_separated")}
+                    placeholder="Enter service IDs separated by commas (e.g., 1, 2, 3)"
                     className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                   />
                 </motion.div>
@@ -794,7 +1132,7 @@ const ProjectsManager = () => {
                     className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-800 disabled:opacity-50"
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    {isSaving ? t('loading') || 'Loading...' : (editingProject ? t('update') : t('save'))}
+                    {isSaving ? 'Saving your project... ⏳' : (editingProject ? 'Save Changes ✨' : 'Create Project 🚀')}
                   </Button>
                 </motion.div>
               </div>

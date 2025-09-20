@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import Swal from 'sweetalert2'
 
 const UsersManager = () => {
   const { t, language } = useLanguage();
@@ -28,9 +29,10 @@ const UsersManager = () => {
     username: '',
     email: '',
     password: '',
-    currentPassword: '',
     role: 'user'
   })
+  const [errors, setErrors] = useState({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // دالة جلب المستخدمين من API
   const fetchUsers = async () => {
@@ -59,6 +61,7 @@ const UsersManager = () => {
       setUsers(data); // تحديث حالة المستخدمين بالبيانات المستلمة
     } catch (error) {
       console.error("Failed to fetch users:", error);
+      showErrorAlert(t('fetch_users_error'));
     }
   };
 
@@ -66,6 +69,96 @@ const UsersManager = () => {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  // التحقق من صحة البريد الإلكتروني باستخدام regex
+  const isValidEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(email)
+  }
+
+  // التحقق من صحة البيانات
+  const validateForm = () => {
+    const newErrors = {}
+
+    // التحقق من اسم المستخدم
+    if (!formData.username.trim()) {
+      newErrors.username = t('username_required')
+    }
+
+    // التحقق من البريد الإلكتروني
+    if (!formData.email.trim()) {
+      newErrors.email = t('email_required')
+    } else if (!isValidEmail(formData.email)) {
+      newErrors.email = t('invalid_email')
+    }
+
+    // التحقق من كلمة المرور (فقط عند إضافة مستخدم جديد)
+    if (!editingUser && !formData.password.trim()) {
+      newErrors.password = t('password_required')
+    }
+
+    // التحقق من الدور
+    if (!formData.role) {
+      newErrors.role = t('role_required')
+    }
+
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  // التحقق من تكرار البريد الإلكتروني
+  const isEmailUnique = (email) => {
+    // إذا كنا في وضع التعديل، نتأكد من أن البريد الإلكتروني مختلف عن البريد الأصلي للمستخدم
+    if (editingUser && email === editingUser.email) {
+      return true
+    }
+    
+    // التحقق من عدم وجود البريد الإلكتروني في قاعدة البيانات
+    return !users.some(user => user.email === email)
+  }
+
+  // دالة لعرض رسالة نجاح
+  const showSuccessAlert = (message) => {
+    Swal.fire({
+      icon: 'success',
+      title: message,
+      timer: 2000,
+      showConfirmButton: false,
+      background: theme === 'dark' ? '#374151' : '#fff',
+      color: theme === 'dark' ? '#fff' : '#000',
+    });
+  };
+
+  // دالة لعرض رسالة خطأ
+  const showErrorAlert = (message) => {
+    Swal.fire({
+      icon: 'error',
+      title: 'Oops...',
+      text: message,
+      background: theme === 'dark' ? '#374151' : '#fff',
+      color: theme === 'dark' ? '#fff' : '#000',
+    });
+  };
+
+  // دالة لعرض رسالة تأكيد
+  const showConfirmAlert = (message, confirmCallback) => {
+    Swal.fire({
+      title: t('are_you_sure'),
+      text: message,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#3085d6',
+      cancelButtonColor: '#d33',
+      confirmButtonText: t('yes'),
+      cancelButtonText: t('cancel'),
+      background: theme === 'dark' ? '#374151' : '#fff',
+      color: theme === 'dark' ? '#fff' : '#000',
+    }).then((result) => {
+      if (result.isConfirmed) {
+        confirmCallback();
+      }
+    });
+  };
 
   const filteredUsers = users.filter(user =>
     user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -78,9 +171,9 @@ const UsersManager = () => {
       username: '',
       email: '',
       password: '',
-      currentPassword: '',
       role: 'user'
     })
+    setErrors({})
     setShowForm(true)
   }
 
@@ -90,81 +183,57 @@ const UsersManager = () => {
       username: user.username,
       email: user.email || '',
       password: '',
-      currentPassword: '',
       role: user.role || 'user'
     })
+    setErrors({})
     setShowForm(true)
   }
 
   const handleSaveUser = async () => {
+    setIsSubmitting(true)
+    
+    // التحقق من صحة البيانات
+    if (!validateForm()) {
+      setIsSubmitting(false)
+      return
+    }
+
+    // التحقق من عدم تكرار البريد الإلكتروني
+    if (!isEmailUnique(formData.email)) {
+      setErrors({...errors, email: t('email_already_exists')})
+      setIsSubmitting(false)
+      return
+    }
+
     try {
       const token = localStorage.getItem('token');
       if (!token) {
         console.error("No authentication token found.");
+        showErrorAlert(t('no_auth_token'));
         return;
       }
 
-      // If we're editing a user and a new password is provided
-      if (editingUser && formData.password) {
-        // First, update the user's basic info (username, email, role)
+      // If we're editing a user
+      if (editingUser) {
         const roleId = formData.role === 'admin' ? 1 : 2;
-        const userResponse = await fetch(`http://localhost:1337/api/users/${editingUser.id}`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            username: formData.username,
-            email: formData.email,
-            role: roleId,
-          }),
-        });
-        
-        if (!userResponse.ok) {
-          const result = await userResponse.json();
-          console.error("Failed to update user:", result);
-          alert("Failed to update user.");
-          return;
-        }
-        
-        // Then, change the password using the separate endpoint
-        const passwordResponse = await fetch("http://localhost:1337/api/auth/change-password", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            currentPassword: formData.currentPassword,
-            password: formData.password,
-            passwordConfirmation: formData.password,
-          }),
-        });
+        const userData = {
+          username: formData.username,
+          email: formData.email,
+          role: roleId,
+        };
 
-        const passwordResult = await passwordResponse.json();
-        if (passwordResponse.ok) {
-          console.log("Password changed successfully:", passwordResult);
-          alert("User updated and password changed successfully!");
-        } else {
-          console.error("Failed to change password:", passwordResult);
-          alert(passwordResult.error?.message || "User info updated but failed to change password.");
+        // If a new password is provided, add it to the data
+        if (formData.password) {
+          userData.password = formData.password;
         }
-      } 
-      // If we're editing a user but no new password is provided
-      else if (editingUser) {
-        const roleId = formData.role === 'admin' ? 1 : 2;
+
         const response = await fetch(`http://localhost:1337/api/users/${editingUser.id}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`
           },
-          body: JSON.stringify({
-            username: formData.username,
-            email: formData.email,
-            role: roleId,
-          }),
+          body: JSON.stringify(userData),
         });
         
         const result = await response.json();
@@ -173,10 +242,15 @@ const UsersManager = () => {
           setUsers(users.map(user =>
             user.id === editingUser.id ? { ...user, ...result } : user
           ));
-          alert("User updated successfully!");
+          
+          if (formData.password) {
+            showSuccessAlert(t('user_updated_password_changed'));
+          } else {
+            showSuccessAlert(t('user_updated_successfully'));
+          }
         } else {
           console.error("Failed to update user:", result);
-          alert("Failed to update user.");
+          showErrorAlert(result.error?.message || t('update_user_failed'));
         }
       } 
       // Adding a new user
@@ -200,57 +274,61 @@ const UsersManager = () => {
         if (response.ok) {
           console.log("User added successfully:", result);
           setUsers([...users, result]);
-          alert("User added successfully!");
+          showSuccessAlert(t('user_added_successfully'));
         } else {
           console.error("Failed to add user:", result);
-          alert("Failed to add user. Please check the console for details.");
+          showErrorAlert(t('add_user_failed'));
         }
       }
     } catch (error) {
       console.error("API error:", error);
-      alert("An error occurred. Please try again later.");
+      showErrorAlert(t('general_error'));
     } finally {
+      setIsSubmitting(false)
       setEditingUser(null);
       setFormData({
         username: '',
         email: '',
         password: '',
-        currentPassword: '',
         role: 'user'
       });
+      setErrors({})
       setShowForm(false);
       fetchUsers(); // Refresh the user list
     }
   };
 
   const handleDeleteUser = async (id) => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error("No authentication token found.");
-        return;
-      }
+    showConfirmAlert(t('delete_user_confirm'), async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          console.error("No authentication token found.");
+          showErrorAlert(t('no_auth_token'));
+          return;
+        }
 
-      const response = await fetch(`http://localhost:1337/api/users/${id}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${token}`
-        },
-      });
+        const response = await fetch(`http://localhost:1337/api/users/${id}`, {
+          method: "DELETE",
+          headers: {
+            "Authorization": `Bearer ${token}`
+          },
+        });
 
-      if (response.ok) {
-        console.log("User deleted successfully.");
-        setUsers(users.filter(user => user.id !== id));
-        alert("User deleted successfully!");
-      } else {
-        const result = await response.json();
-        console.error("Failed to delete user:", result);
-        alert("Failed to delete user. Please check the console.");
+        if (response.ok) {
+          console.log("User deleted successfully.");
+          setUsers(users.filter(user => user.id !== id));
+          showSuccessAlert(t('user_deleted_successfully'));
+        } else {
+          const result = await response.json();
+          console.error("Failed to delete user:", result);
+          showErrorAlert(t('delete_user_failed'));
+        }
+      } catch (error) {
+        console.error("API error during deletion:", error);
+        showErrorAlert(t('delete_user_error'));
       }
-    } catch (error) {
-      console.error("API error during deletion:", error);
-      alert("An error occurred while deleting the user.");
-    }
+    });
   };
 
   const containerVariants = {
@@ -426,8 +504,11 @@ const UsersManager = () => {
                     value={formData.username}
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                     placeholder={t('enter_username')}
-                    className="mt-1 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                    className={`mt-1 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 ${errors.username ? 'border-red-500' : ''}`}
                   />
+                  {errors.username && (
+                    <p className="text-red-500 text-sm mt-1">{errors.username}</p>
+                  )}
                 </motion.div>
 
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
@@ -438,28 +519,12 @@ const UsersManager = () => {
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     placeholder={t('enter_email')}
-                    className="mt-1 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                    className={`mt-1 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 ${errors.email ? 'border-red-500' : ''}`}
                   />
+                  {errors.email && (
+                    <p className="text-red-500 text-sm mt-1">{errors.email}</p>
+                  )}
                 </motion.div>
-
-                {editingUser && (
-                  <>
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-                      <Label htmlFor="currentPassword" className="dark:text-gray-200">{t('current_password')}</Label>
-                      <Input
-                        id="currentPassword"
-                        type="password"
-                        value={formData.currentPassword}
-                        onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
-                        placeholder={t('enter_current_password')}
-                        className="mt-1 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                      />
-                      <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
-                        {t('current_password_required_for_changes')}
-                      </p>
-                    </motion.div>
-                  </>
-                )}
 
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
                   <Label htmlFor="password" className="dark:text-gray-200">
@@ -471,9 +536,12 @@ const UsersManager = () => {
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     placeholder={editingUser ? t('enter_new_password') : t('enter_password')}
-                    className="mt-1 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                    className={`mt-1 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 ${errors.password ? 'border-red-500' : ''}`}
                   />
-                  {editingUser && (
+                  {errors.password && (
+                    <p className="text-red-500 text-sm mt-1">{errors.password}</p>
+                  )}
+                  {editingUser && !errors.password && (
                     <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
                       {t('leave_blank_to_keep_current')}
                     </p>
@@ -486,11 +554,14 @@ const UsersManager = () => {
                     id="role"
                     value={formData.role}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                    className="mt-1 block w-full py-2 px-3 border rounded-md shadow-sm focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                    className={`mt-1 block w-full py-2 px-3 border rounded-md shadow-sm focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 ${errors.role ? 'border-red-500' : ''}`}
                   >
                     <option value="user">{t('user')}</option>
                     <option value="admin">{t('admin')}</option>
                   </select>
+                  {errors.role && (
+                    <p className="text-red-500 text-sm mt-1">{errors.role}</p>
+                  )}
                 </motion.div>
               </div>
 
@@ -501,10 +572,11 @@ const UsersManager = () => {
                 <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                   <Button
                     onClick={handleSaveUser}
-                    className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-800"
+                    disabled={isSubmitting}
+                    className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-800 disabled:opacity-50"
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    {t('save_user')}
+                    {isSubmitting ? t('saving') : t('save_user')}
                   </Button>
                 </motion.div>
               </div>
