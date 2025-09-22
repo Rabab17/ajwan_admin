@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { getApiUrl } from '../../config/api';
 import Swal from "sweetalert2";
 
 const LoginPage = ({ onLogin }) => {
@@ -20,7 +21,7 @@ const LoginPage = ({ onLogin }) => {
     setIsLoading(true);
 
     try {
-      const loginRes = await fetch("http://localhost:1337/api/auth/local", {
+      const loginRes = await fetch(getApiUrl("/auth/local"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: email, password: password }),

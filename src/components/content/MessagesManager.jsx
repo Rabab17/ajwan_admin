@@ -13,6 +13,11 @@ import {
   X,
   Send
 } from 'lucide-react';
+import { getApiUrl } from '../../config/api';
+import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
+import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationContainer } from '../ui/NotificationContainer';
 
 // --- Mocking External Dependencies for Self-Containment ---
 // In a real project, you would import these from your component library
@@ -187,7 +192,7 @@ const MessagesManager = () => {
     const fetchMessages = async () => {
       const token = localStorage.getItem('token');
       try {
-        const res = await fetch("http://localhost:1337/api/message-ajwans", {
+        const res = await fetch(getApiUrl("/message-ajwans"), {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -261,7 +266,7 @@ const MessagesManager = () => {
 
     try {
       // API call to delete the message using documentId
-      const response = await fetch(`http://localhost:1337/api/message-ajwans/${documentId}`, {
+      const response = await fetch(getApiUrl(`/message-ajwans/${documentId}`), {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -308,8 +313,8 @@ const MessagesManager = () => {
     setSelectedMessage(null);
   };
 
-  if (loading) return <p className="p-6">{t('loading')}...</p>;
-  if (error) return <p className="p-6 text-red-600">{error}</p>;
+  if (loading) return <PageLoader message={t('loading')} />;
+  if (error) return <ErrorAlert title="خطأ" message={error} className="m-6" />;
 
   return (
     <motion.div
@@ -699,6 +704,12 @@ const MessagesManager = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* Notification Container */}
+      <NotificationContainer 
+        notifications={[]} 
+        onRemove={() => {}} 
+      />
     </motion.div>
   );
 };

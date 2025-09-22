@@ -73,9 +73,9 @@ function App() {
                 <Layout onLogout={handleLogout}>
                   {/* You can nest your dashboard routes here */}
                   <Routes>
-                    <Route path="/" element={<Dashboard />} />
+                    {/* <Route path="/" element={<Dashboard />} /> */}
                     {/* <Route path="products" element={<ProductsManager />} /> */}
-                    <Route path="services" element={<ServicesManager />} />
+                    <Route path="/" element={<ServicesManager />} />
                     <Route path="users" element={<UsersManager />} />
                     <Route path="service-items" element={<ServiceItemManager />} />
                     <Route path="messages" element={<MessagesManager />} />

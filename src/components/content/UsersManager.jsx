@@ -15,11 +15,17 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import { getApiUrl } from '../../config/api'
+import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
+import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationContainer } from '../ui/NotificationContainer';
 import Swal from 'sweetalert2'
 
 const UsersManager = () => {
   const { t, language } = useLanguage();
   const { theme } = useTheme();
+  const { notifications, showSuccess, showError, removeNotification } = useNotifications();
 
   const [users, setUsers] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -44,7 +50,7 @@ const UsersManager = () => {
         return;
       }
 
-      const response = await fetch("http://localhost:1337/api/users", {
+      const response = await fetch(getApiUrl("/users"), {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -227,7 +233,7 @@ const UsersManager = () => {
           userData.password = formData.password;
         }
 
-        const response = await fetch(`http://localhost:1337/api/users/${editingUser.id}`, {
+        const response = await fetch(`${getApiUrl("/users")}/${editingUser.id}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -256,7 +262,7 @@ const UsersManager = () => {
       // Adding a new user
       else {
         const roleId = formData.role === 'admin' ? 1 : 2;
-        const response = await fetch("http://localhost:1337/api/users", {
+        const response = await fetch(getApiUrl("/users"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -308,7 +314,7 @@ const UsersManager = () => {
           return;
         }
 
-        const response = await fetch(`http://localhost:1337/api/users/${id}`, {
+        const response = await fetch(`${getApiUrl("/users")}/${id}`, {
           method: "DELETE",
           headers: {
             "Authorization": `Bearer ${token}`
@@ -584,6 +590,12 @@ const UsersManager = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* Notification Container */}
+      <NotificationContainer 
+        notifications={notifications} 
+        onRemove={removeNotification} 
+      />
     </motion.div>
   )
 }

@@ -28,15 +28,15 @@ const Layout = ({ children, onLogout }) => {
   const { theme, toggleTheme } = useTheme();
 
   const menuItems = [
-    {
-      name: t("dashboard"),
-      path: '/dashboard',
-      icon: Home,
-      description: t("dashboard_overview")
-    },
+    // {
+    //   name: t("dashboard"),
+    //   path: '/dashboard',
+    //   icon: Home,
+    //   description: t("dashboard_overview")
+    // },
     {
       name: t("services"),
-      path: '/dashboard/services',
+      path: '/dashboard',
       icon: Users,
       description: t("manage_services")
     },

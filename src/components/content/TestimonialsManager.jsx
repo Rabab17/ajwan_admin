@@ -9,14 +9,20 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Edit, Trash2, Search, Star, User, Save, X, Quote } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import { getApiUrl } from '../../config/api';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
+import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationContainer } from '../ui/NotificationContainer';
 import Swal from 'sweetalert2';
 
 // المكون الرئيسي لإدارة التوصيات
 const TestimonialsManager = () => {
   const { t, language } = useLanguage();
   const { theme } = useTheme();
+  const { notifications, showSuccess, showError, removeNotification } = useNotifications();
 
   // تعريف حالة المكون
   const [testimonials, setTestimonials] = useState([]);
@@ -108,7 +114,7 @@ const TestimonialsManager = () => {
   };
 
   // URL الـ API الخاص بـ Strapi
-  const API_URL = 'http://localhost:1337/api/testimonial-ajwans';
+  const API_URL = getApiUrl('/testimonial-ajwans');
 
   // دالة لجلب جميع التوصيات (GET)
   const fetchTestimonials = async () => {
@@ -616,6 +622,12 @@ const TestimonialsManager = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* Notification Container */}
+      <NotificationContainer 
+        notifications={notifications} 
+        onRemove={removeNotification} 
+      />
     </motion.div>
   );
 };

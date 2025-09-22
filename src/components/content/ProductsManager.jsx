@@ -21,10 +21,15 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
+import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationContainer } from '../ui/NotificationContainer';
 
 const ProductsManager = () => {
   const { t, language } = useLanguage();
   const { theme } = useTheme();
+  const { notifications, showSuccess, showError, removeNotification } = useNotifications();
 
   const [products, setProducts] = useState([
     {
@@ -546,11 +551,7 @@ const ProductsManager = () => {
                       >
                         {isUploading ? (
                           <div className="flex items-center justify-center">
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                              className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full mr-2"
-                            />
+                            <ButtonLoader className="mr-2" />
                             {t('uploading')}... {uploadProgress}%
                           </div>
                         ) : (
@@ -628,6 +629,12 @@ const ProductsManager = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* Notification Container */}
+      <NotificationContainer 
+        notifications={notifications} 
+        onRemove={removeNotification} 
+      />
     </motion.div>
   )
 }

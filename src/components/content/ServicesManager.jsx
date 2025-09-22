@@ -46,14 +46,21 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { cn } from "@/lib/utils";
+import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
+import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationContainer } from '../ui/NotificationContainer';
 
-// Prefer configured backend URL; fallback to localhost for dev
-const API_BASE = 'http://localhost:1337';
+import { getApiUrl } from '../../config/api';
+
+// Use environment variable for API base URL
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:1337';
 console.log("API_BASE:", API_BASE);
 
 const ServicesManager = () => {
     const { t, language } = useLanguage();
     const { theme } = useTheme();
+    const { notifications, showSuccess, showError, removeNotification } = useNotifications();
 
     const [services, setServices] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -484,6 +491,7 @@ const ServicesManager = () => {
             // تحويل البيانات المختارة إلى تنسيق API
             const productAjwansIds = selectedProjects.map(project => project.id || project);
             const serviceItemsIds = selectedServiceItems.map(item => item.id || item);
+            
 
             // ✅ رفع الصور الجديدة
             let uploadedFiles = [];
@@ -946,13 +954,7 @@ const ServicesManager = () => {
                     </CardHeader>
                     <CardContent>
                         {isLoading ? (
-                            // عرض مؤشر التحميل
-                            <div className="flex justify-center items-center py-10">
-                                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-                                <span className="ml-2 text-gray-500 dark:text-gray-400">
-                                    {language === 'ar' ? 'جاري تحميل البيانات...' : 'Loading data...'}
-                                </span>
-                            </div>
+                            <CardLoader message={language === 'ar' ? 'جاري تحميل البيانات...' : 'Loading data...'} />
                         ) : filteredServices.length === 0 ? (
                             // عرض رسالة عدم وجود بيانات
                             <div className="text-center py-10">
@@ -1083,7 +1085,7 @@ const ServicesManager = () => {
                                                                 className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
                                                             >
                                                                 {deletingId === service.documentId ? (
-                                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    <InlineLoader size="small" />
                                                                 ) : (
                                                                     <Trash2 className="w-4 h-4" />
                                                                 )}
@@ -1598,7 +1600,7 @@ const ServicesManager = () => {
                                     >
                                         {isSaving ? (
                                             <>
-                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                <ButtonLoader className="mr-2" />
                                                 {language === 'ar' ? 'جاري الحفظ...' : 'Saving...'}
                                             </>
                                         ) : (
@@ -1617,6 +1619,12 @@ const ServicesManager = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+            
+            {/* Notification Container */}
+            <NotificationContainer 
+                notifications={notifications} 
+                onRemove={removeNotification} 
+            />
         </motion.div>
     );
 };

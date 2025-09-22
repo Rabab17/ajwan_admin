@@ -28,14 +28,21 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
+import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationContainer } from '../ui/NotificationContainer';
 
-// Prefer configured backend URL; fallback to localhost for dev
-const API_BASE = 'http://localhost:1337';
+import { getApiUrl } from '../../config/api';
+
+// Use environment variable for API base URL
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:1337';
 console.log("API_BASE:", API_BASE);
 
 const ServiceItemManager = () => {
   const { t, language } = useLanguage();
   const { theme } = useTheme();
+  const { notifications, showSuccess, showError, removeNotification } = useNotifications();
 
   const [serviceItems, setServiceItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -131,7 +138,7 @@ const ServiceItemManager = () => {
 
     try {
       const response = await fetch(
-        `http://localhost:1337/api/service-items?populate=*&locale=${lang}`
+        `${API_BASE}/api/service-items?populate=*&locale=${lang}`
       );
       console.log("response", response);
 
@@ -689,12 +696,7 @@ const ServiceItemManager = () => {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="flex justify-center items-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-                <span className="ml-2 text-gray-600 dark:text-gray-400">
-                  {language === 'ar' ? 'جاري التحميل...' : 'Loading your items...'}
-                </span>
-              </div>
+              <CardLoader message={language === 'ar' ? 'جاري التحميل...' : 'Loading your items...'} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -796,7 +798,7 @@ const ServiceItemManager = () => {
                                   className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
                                 >
                                   {deletingId === item.documentId ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <InlineLoader size="small" />
                                   ) : (
                                     <Trash2 className="w-4 h-4" />
                                   )}
@@ -1059,7 +1061,7 @@ const ServiceItemManager = () => {
                   >
                     {isSaving ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <ButtonLoader className="mr-2" />
                         {language === 'ar' ? 'جاري الحفظ...' : 'Saving...'}
                       </>
                     ) : (
@@ -1075,6 +1077,12 @@ const ServiceItemManager = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* Notification Container */}
+      <NotificationContainer 
+        notifications={notifications} 
+        onRemove={removeNotification} 
+      />
     </motion.div>
   )
 }

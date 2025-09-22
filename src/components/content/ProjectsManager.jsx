@@ -27,14 +27,21 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
+import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationContainer } from '../ui/NotificationContainer';
 
-// Prefer configured backend URL; fallback to localhost for dev
-const API_BASE = 'http://localhost:1337';
+import { getApiUrl } from '../../config/api';
+
+// Use environment variable for API base URL
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:1337';
 console.log("API_BASE:", API_BASE);
 
 const ProjectsManager = () => {
   const { t, language } = useLanguage();
   const { theme } = useTheme();
+  const { notifications, showSuccess, showError, removeNotification } = useNotifications();
 
   const [projects, setProjects] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -1098,7 +1105,7 @@ const ProjectsManager = () => {
                   )}
                 </motion.div>
 
-                <motion.div
+                {/* <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.6 }}
@@ -1111,7 +1118,7 @@ const ProjectsManager = () => {
                     placeholder="Enter service IDs separated by commas (e.g., 1, 2, 3)"
                     className="mt-1 transition-all duration-200 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                   />
-                </motion.div>
+                </motion.div> */}
               </div>
 
               <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
@@ -1140,6 +1147,12 @@ const ProjectsManager = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* Notification Container */}
+      <NotificationContainer 
+        notifications={notifications} 
+        onRemove={removeNotification} 
+      />
     </motion.div>
   )
 }
