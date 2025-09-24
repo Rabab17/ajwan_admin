@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,9 +34,7 @@ import { NotificationContainer } from '../ui/NotificationContainer';
 
 import { getApiUrl } from '../../config/api';
 
-// Use environment variable for API base URL
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:1337';
-console.log("API_BASE:", API_BASE);
+// Use API configuration for base URL
 
 const ProjectsManager = () => {
   const { t, language } = useLanguage();
@@ -49,6 +47,9 @@ const ProjectsManager = () => {
   const [editingProject, setEditingProject] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deletingProjectId, setDeletingProjectId] = useState(null);
   const [activeTab, setActiveTab] = useState('en');
   const [formData, setFormData] = useState({
     productName_en: '',
@@ -101,6 +102,7 @@ const ProjectsManager = () => {
 
   // Enhanced project loading with friendly error messages
   const loadProjects = async () => {
+    setIsLoading(true);
     let lang = language || 'en';
 
     if (lang === 'ar') {
@@ -111,7 +113,7 @@ const ProjectsManager = () => {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/product-ajwans?populate=*&locale=${lang}`
+        `${getApiUrl()}/product-ajwans?populate=*&locale=${lang}`
       );
       console.log("response", response);
 
@@ -143,6 +145,8 @@ const ProjectsManager = () => {
     } catch (err) {
       console.error("Error loading projects:", err);
       toast.error("We're having trouble loading your projects right now 📂 Please refresh the page or try again later");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -184,7 +188,7 @@ const ProjectsManager = () => {
     if (lang === 'ar') {
       try {
         const response = await fetch(
-          `${API_BASE}/api/product-ajwans?locale=en&populate=productImages`,
+          `${getApiUrl()}/product-ajwans?locale=en&populate=productImages`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -231,7 +235,7 @@ const ProjectsManager = () => {
   const loadEnglishProjectsForDropdown = async () => {
     try {
       const TOKEN = getValidToken();
-      const res = await fetch(`${API_BASE}/api/product-ajwans?populate=*&locale=en`, {
+      const res = await fetch(`${getApiUrl()}/product-ajwans?populate=*&locale=en`, {
         headers: {
           'Authorization': `Bearer ${TOKEN}`,
           'Content-Type': 'application/json'
@@ -345,7 +349,7 @@ const ProjectsManager = () => {
         try {
           await Promise.all(
             existingMedia.imagesToDelete.map(async (imageId) => {
-              const deleteResponse = await fetch(`${API_BASE}/api/upload/files/${imageId}`, {
+              const deleteResponse = await fetch(`${getApiUrl()}/upload/files/${imageId}`, {
                 method: 'DELETE',
                 headers: {
                   'Authorization': `Bearer ${TOKEN}`
@@ -377,7 +381,7 @@ const ProjectsManager = () => {
         });
 
         try {
-          const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
+          const uploadResponse = await fetch(`${getApiUrl()}/upload`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${TOKEN}` },
             body: uploadFormData,
@@ -432,7 +436,7 @@ const ProjectsManager = () => {
             }
           }
 
-          const enResp = await fetch(`${API_BASE}/api/product-ajwans?locale=en`, {
+          const enResp = await fetch(`${getApiUrl()}/product-ajwans?locale=en`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -480,7 +484,7 @@ const ProjectsManager = () => {
           }
 
           const arResp = await fetch(
-            `${API_BASE}/api/product-ajwans/${selectedEnglishDocumentId}?locale=ar-SA`,
+            `${getApiUrl()}/product-ajwans/${selectedEnglishDocumentId}?locale=ar-SA`,
             {
               method: "PUT",
               headers: {
@@ -502,7 +506,7 @@ const ProjectsManager = () => {
           const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
 
           const response = await fetch(
-            `${API_BASE}/api/product-ajwans/${documentId}?locale=${locale}`, {
+            `${getApiUrl()}/product-ajwans/${documentId}?locale=${locale}`, {
               method: "PUT",
               headers: {
                 "Content-Type": "application/json",
@@ -604,7 +608,7 @@ const ProjectsManager = () => {
         return;
       }
 
-      const response = await fetch(`${API_BASE}/api/product-ajwans/${documentId}`, {
+      const response = await fetch(`${getApiUrl()}/product-ajwans/${documentId}`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -634,7 +638,7 @@ const ProjectsManager = () => {
       return url;
     }
 
-    return `${API_BASE}${url}`;
+    return `${getApiUrl().replace('/api', '')}${url}`;
   };
 
   const ImageWithDelete = ({ image, onRemove, isExisting = false }) => {
@@ -723,7 +727,7 @@ const ProjectsManager = () => {
         if (!rawUrl) return null;
         return {
           id: img.id,
-          url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
+          url: rawUrl.startsWith("http") ? rawUrl : `${getApiUrl().replace('/api', '')}${rawUrl}`,
           name: img.attributes?.name,
         };
       }).filter(Boolean);
@@ -732,7 +736,7 @@ const ProjectsManager = () => {
       if (!img.url) return null;
       return {
         id: img.id,
-        url: img.url.startsWith("http") ? img.url : `${API_BASE}${img.url}`,
+        url: img.url.startsWith("http") ? img.url : `${getApiUrl().replace('/api', '')}${img.url}`,
         name: img.name,
       };
     }).filter(Boolean);

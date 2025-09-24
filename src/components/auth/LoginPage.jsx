@@ -35,7 +35,7 @@ const LoginPage = ({ onLogin }) => {
       const token = loginData.jwt;
       localStorage.setItem("token", token);
 
-      const userRes = await fetch("http://localhost:1337/api/users/me?populate=role", {
+      const userRes = await fetch(`${getApiUrl()}/users/me?populate=role`, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });

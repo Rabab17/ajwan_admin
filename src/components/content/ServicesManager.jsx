@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,10 +53,6 @@ import { NotificationContainer } from '../ui/NotificationContainer';
 
 import { getApiUrl } from '../../config/api';
 
-// Use environment variable for API base URL
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:1337';
-console.log("API_BASE:", API_BASE);
-
 const ServicesManager = () => {
     const { t, language } = useLanguage();
     const { theme } = useTheme();
@@ -95,6 +91,8 @@ const ServicesManager = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [formErrors, setFormErrors] = useState({}); // حالة جديدة لأخطاء النموذج
     const [status, setStatus] = useState('published'); // حالة النشر: published أو draft
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [deletingServiceId, setDeletingServiceId] = useState(null);
 
     // States جديدة للـ Dropdowns
     const [serviceItems, setServiceItems] = useState([]);
@@ -156,12 +154,69 @@ const ServicesManager = () => {
         return response;
     };
 
+    // دالة لمعالجة أخطاء تحميل الصور
+    const handleImageError = (e) => {
+        console.error("❌ Image failed to load:", e.target.src);
+        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0zMiAxNlY0OCIgc3Ryb2tlPSIjOUE5QTlBIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8cGF0aCBkPSJNMTYgMzJINDgiIHN0cm9rZT0iIzlBOUE5QSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+';
+        e.target.alt = 'Failed to load image';
+    };
+
+    // دالة محسنة للحصول على رابط الوسائط
+    const getMediaUrl = (media) => {
+        if (!media) return null;
+
+        console.log("🔍 Processing media:", media);
+
+        // معالجة مختلف أشكال البيانات
+        let url;
+        
+        // الحالة 1: بيانات Strapi القياسية
+        if (media.attributes?.url) {
+            url = media.attributes.url;
+        } 
+        // الحالة 2: كائن مباشر
+        else if (media.url) {
+            url = media.url;
+        }
+        // الحالة 3: بيانات متداخلة
+        else if (media.data?.attributes?.url) {
+            url = media.data.attributes.url;
+        }
+        else if (media.data?.url) {
+            url = media.data.url;
+        }
+        // الحالة 4: تنسيقات مختلفة
+        else if (media.formats) {
+            url = media.formats.thumbnail?.url || 
+                  media.formats.small?.url || 
+                  media.formats.medium?.url || 
+                  media.url;
+        }
+
+        if (!url || typeof url !== "string") {
+            console.warn("❌ Invalid media URL:", media);
+            return '/placeholder-image.jpg';
+        }
+
+        // إذا كان الرابط يحتوي على مجال كامل
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+
+        // إذا كان الرابط نسبياً، أضف عنوان API
+        const baseUrl = getApiUrl().replace('/api', '');
+        const fullUrl = `${baseUrl}${url.startsWith('/') ? url : '/' + url}`;
+        
+        console.log("✅ Generated URL:", fullUrl);
+        return fullUrl;
+    };
+
     // دالة لجلب Service Items
     const fetchServiceItems = async () => {
         try {
             const lang = language === 'ar' ? 'ar-SA' : 'en';
             const response = await fetch(
-                `${API_BASE}/api/service-items?populate=*&locale=${lang}`
+                `${getApiUrl()}/service-items?populate=*&locale=${lang}`
             );
             
             if (!response.ok) {
@@ -187,7 +242,7 @@ const ServicesManager = () => {
         try {
             const lang = language === 'ar' ? 'ar-SA' : 'en';
             const response = await fetch(
-                `${API_BASE}/api/product-ajwans?populate=*&locale=${lang}`
+                `${getApiUrl()}/product-ajwans?populate=*&locale=${lang}`
             );
             
             if (!response.ok) {
@@ -209,7 +264,7 @@ const ServicesManager = () => {
         }
     };
 
-    // دالة محسنة لجلب الخدمات
+    // دالة محسنة لجلب الخدمات مع timeout
     const loadServices = async () => {
         setIsLoading(true);
         let lang = language || 'en';
@@ -221,9 +276,31 @@ const ServicesManager = () => {
         console.log("🌍 Current language:", lang);
 
         try {
+            // إضافة مؤشر تحميل بعد 3 ثوانٍ إذا كان التحميل بطيئاً
+            const loadingTimeout = setTimeout(() => {
+                if (isLoading) {
+                    toast.info(language === 'ar' 
+                        ? '⏳ جاري تحميل البيانات، قد يستغرق بعض الوقت...' 
+                        : '⏳ Loading data, this may take a moment...');
+                }
+            }, 3000);
+
+            // إضافة timeout للتعامل مع البطء
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 ثانية
+
             const response = await fetch(
-                `${API_BASE}/api/service-ajwains?populate=*&locale=${lang}`
+                `${getApiUrl()}/service-ajwains?populate=*&locale=${lang}`,
+                {
+                    signal: controller.signal,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                }
             );
+            
+            clearTimeout(timeoutId);
+            clearTimeout(loadingTimeout);
             console.log("response", response);
 
             if (!response.ok) {
@@ -255,7 +332,20 @@ const ServicesManager = () => {
             setServices(formatted);
         } catch (err) {
             console.error("Error loading services:", err);
-            toast.error("Error loading services");
+            
+            if (err.name === 'AbortError') {
+                toast.error(language === 'ar' 
+                    ? "⏰ انتهت مهلة الاتصال. السيرفر بطيء، يرجى المحاولة مرة أخرى" 
+                    : "⏰ Request timeout. Server is slow, please try again");
+            } else if (err.message.includes('Failed to fetch')) {
+                toast.error(language === 'ar' 
+                    ? "🔌 لا يمكن الاتصال بالسيرفر. يرجى المحاولة لاحقاً" 
+                    : "🔌 Cannot connect to server. Please try later");
+            } else {
+                toast.error(language === 'ar' 
+                    ? "❌ خطأ في تحميل الخدمات" 
+                    : "❌ Error loading services");
+            }
         } finally {
             setIsLoading(false);
         }
@@ -304,7 +394,7 @@ const ServicesManager = () => {
         if (lang === 'ar') {
             try {
                 const response = await fetch(
-                    `${API_BASE}/api/service-ajwains?locale=en&populate=*`,
+                    `${getApiUrl()}/service-ajwains?locale=en&populate=*`,
                     {
                         headers: {
                             Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -398,9 +488,21 @@ const ServicesManager = () => {
 
     const handleFileChange = (e, fieldName) => {
         const files = Array.from(e.target.files);
+        
+        // التحقق من أن الملفات هي صور
+        const imageFiles = files.filter(file => file.type.startsWith('image/'));
+        
+        if (imageFiles.length !== files.length) {
+            toast.error(language === 'ar' 
+                ? 'يجب اختيار ملفات صور فقط' 
+                : 'Please select image files only');
+        }
+        
         setFormData(prev => ({
             ...prev,
-            [fieldName]: fieldName === 'ServiceImages' ? [...prev[fieldName], ...files] : files[0]
+            [fieldName]: fieldName === 'ServiceImages' 
+                ? [...prev[fieldName], ...imageFiles] 
+                : imageFiles[0]
         }));
         
         // مسح خطأ الحقل عند اختيار ملف
@@ -514,7 +616,7 @@ const ServicesManager = () => {
                     uploadFormData.append("files", file);
                 });
 
-                const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
+                const uploadResponse = await fetch(`${getApiUrl()}/upload`, {
                     method: "POST",
                     headers: { Authorization: `Bearer ${TOKEN}` },
                     body: uploadFormData,
@@ -555,7 +657,7 @@ const ServicesManager = () => {
                         }
                     }
 
-                    const enResp = await fetch(`${API_BASE}/api/service-ajwains?locale=en`, {
+                    const enResp = await fetch(`${getApiUrl()}/service-ajwains?locale=en`, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
@@ -594,7 +696,7 @@ const ServicesManager = () => {
                     }
 
                     const arResp = await fetch(
-                        `${API_BASE}/api/service-ajwains/${selectedEnglishDocumentId}?locale=ar-SA`,
+                        `${getApiUrl()}/service-ajwains/${selectedEnglishDocumentId}?locale=ar-SA`,
                         {
                             method: "PUT",
                             headers: {
@@ -648,7 +750,7 @@ const ServicesManager = () => {
                 };
 
                 const updateResponse = await fetch(
-                    `${API_BASE}/api/service-ajwains/${targetDocumentId}?locale=${targetLocale}`,
+                    `${getApiUrl()}/service-ajwains/${targetDocumentId}?locale=${targetLocale}`,
                     {
                         method: "PUT",
                         headers: {
@@ -677,7 +779,21 @@ const ServicesManager = () => {
             toast.success(language === 'ar' ? "تم حفظ الخدمة بنجاح" : "Service saved successfully");
         } catch (error) {
             console.error("Error saving service:", error);
-            toast.error(language === 'ar' ? "حدث خطأ أثناء الحفظ" : "Error while saving");
+            
+            // معالجة أفضل للأخطاء
+            if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+                toast.error(language === 'ar' 
+                    ? "🔌 مشكلة في الاتصال بالسيرفر. يرجى المحاولة مرة أخرى" 
+                    : "🔌 Connection issue. Please try again");
+            } else if (error.message.includes('CORS')) {
+                toast.error(language === 'ar' 
+                    ? "🚫 مشكلة في الصلاحيات. يرجى مراجعة إعدادات السيرفر" 
+                    : "🚫 CORS issue. Please check server settings");
+            } else {
+                toast.error(language === 'ar' 
+                    ? "❌ حدث خطأ أثناء الحفظ. يرجى المحاولة مرة أخرى" 
+                    : "❌ Error while saving. Please try again");
+            }
         } finally {
             setIsSaving(false);
         }
@@ -698,14 +814,15 @@ const ServicesManager = () => {
 
             if (!result.isConfirmed) return;
 
-            setDeletingId(documentId);
+            setIsDeleting(true);
+            setDeletingServiceId(documentId);
             const token = localStorage.getItem("token");
             if (!token) {
                 Swal.fire("Error", language === 'ar' ? "Token غير موجود، يرجى تسجيل الدخول" : "Token not found, please login", "error");
                 return;
             }
 
-            const response = await fetch(`${API_BASE}/api/service-ajwains/${documentId}`, {
+            const response = await fetch(`${getApiUrl()}/service-ajwains/${documentId}`, {
                 method: "DELETE",
                 headers: {
                     "Content-Type": "application/json",
@@ -730,54 +847,39 @@ const ServicesManager = () => {
                 "error"
             );
         } finally {
-            setDeletingId(null);
+            setIsDeleting(false);
+            setDeletingServiceId(null);
         }
-    };
-
-    const getMediaUrl = (media) => {
-        if (!media) return null;
-
-        // معالجة مختلف أشكال البيانات
-        let url;
-        if (media.attributes?.url) {
-            url = media.attributes.url;
-        } else if (media.url) {
-            url = media.url;
-        } else if (media.formats) {
-            // إذا كانت الوسائط تحتوي على تنسيقات مختلفة
-            url = media.formats.thumbnail?.url || 
-                  media.formats.small?.url || 
-                  media.formats.medium?.url || 
-                  media.url;
-        } else if (media.data?.attributes?.url) {
-            // معالجة الحالة عندما تكون الأيقونة داخل كائن data
-            url = media.data.attributes.url;
-        } else if (media.data?.url) {
-            url = media.data.url;
-        }
-        
-        if (!url || typeof url !== "string") return null;
-
-        if (url.startsWith("http://") || url.startsWith("https://")) {
-            return url;
-        }
-
-        return `${API_BASE}${url}`;
     };
 
     const ImageWithDelete = ({ image, onRemove, isExisting = false }) => {
         const [isHovered, setIsHovered] = useState(false);
+        const [imgSrc, setImgSrc] = useState('');
 
-        let imageSrc;
-        if (isExisting) {
-            imageSrc = getMediaUrl(image);
-        } else if (image instanceof File) {
-            imageSrc = URL.createObjectURL(image);
-        } else if (typeof image === "string") {
-            imageSrc = image;
-        } else if (image?.url) {
-            imageSrc = getMediaUrl(image);
-        }
+        useEffect(() => {
+            let imageSrc;
+            
+            if (isExisting) {
+                // للصور الموجودة في السيرفر
+                imageSrc = getMediaUrl(image);
+            } else if (image instanceof File) {
+                // للصور الجديدة المرفوعة - إنشاء URL مؤقت
+                imageSrc = URL.createObjectURL(image);
+            } else if (typeof image === "string") {
+                imageSrc = image;
+            } else if (image?.url) {
+                imageSrc = getMediaUrl(image);
+            }
+            
+            setImgSrc(imageSrc || '/placeholder-image.jpg');
+
+            // تنظيف URL المؤقت عند إلغاء التحميل
+            return () => {
+                if (image instanceof File && imageSrc) {
+                    URL.revokeObjectURL(imageSrc);
+                }
+            };
+        }, [image, isExisting]);
 
         return (
             <motion.div
@@ -787,12 +889,14 @@ const ServicesManager = () => {
                 whileHover={{ scale: 1.05 }}
             >
                 <img
-                    src={imageSrc}
+                    src={imgSrc}
                     alt="preview"
                     className="w-16 h-16 object-cover rounded border"
                     onError={(e) => {
-                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg="64" height="64" fill="#F3F4F6"/><path d="M32 16V48" stroke="#9A9A9A" stroke-width="2" stroke-linecap="round"/><path d="M16 32H48" stroke="#9A9A9A" stroke-width="2" stroke-linecap="round"/></svg>';
+                        console.error("❌ Image failed to load:", imgSrc);
+                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0zMiAxNlY0OCIgc3Ryb2tlPSIjOUE5QTlBIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8cGF0aCBkPSJNMTYgMzJINDgiIHN0cm9rZT0iIzlBOUE5QSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+';
                     }}
+                    loading="lazy"
                 />
                 <AnimatePresence>
                     {isHovered && (
@@ -854,7 +958,7 @@ const ServicesManager = () => {
                 if (!rawUrl) return null;
                 return {
                     id: img.id,
-                    url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
+                    url: rawUrl.startsWith("http") ? rawUrl : `${getApiUrl().replace('/api', '')}${rawUrl}`,
                     name: img.attributes?.name,
                 };
             }).filter(Boolean);
@@ -864,7 +968,7 @@ const ServicesManager = () => {
                 if (!img.url) return null;
                 return {
                     id: img.id,
-                    url: img.url.startsWith("http") ? img.url : `${API_BASE}${img.url}`,
+                    url: img.url.startsWith("http") ? img.url : `${getApiUrl().replace('/api', '')}${img.url}`,
                     name: img.name,
                 };
             }).filter(Boolean);
@@ -880,14 +984,14 @@ const ServicesManager = () => {
             if (!rawUrl) return null;
             return {
                 id: img.id,
-                url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
+                url: rawUrl.startsWith("http") ? rawUrl : `${getApiUrl().replace('/api', '')}${rawUrl}`,
                 name: img.attributes?.name,
             };
         }
         if (imgData.url) {
             return {
                 id: imgData.id,
-                url: imgData.url.startsWith("http") ? imgData.url : `${API_BASE}${imgData.url}`,
+                url: imgData.url.startsWith("http") ? imgData.url : `${getApiUrl().replace('/api', '')}${imgData.url}`,
                 name: imgData.name,
             };
         }
@@ -911,6 +1015,18 @@ const ServicesManager = () => {
                         <p className="text-gray-600 mt-1 dark:text-gray-400">
                             {language === 'ar' ? 'إدارة وتحديث الخدمات المقدمة' : 'Manage and update provided services'}
                         </p>
+                        {isLoading && (
+                            <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md dark:bg-blue-900/20 dark:border-blue-800">
+                                <div className="flex items-center">
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-600" />
+                                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                                        {language === 'ar' 
+                                            ? '⏳ جاري تحميل البيانات...' 
+                                            : '⏳ Loading data...'}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <motion.div
                         whileHover={{ scale: 1.02 }}
@@ -989,8 +1105,9 @@ const ServicesManager = () => {
                             </div>
                         ) : (
                             // عرض الجدول عند وجود بيانات
-                            <div className="overflow-x-auto">
-                                <table className="w-full">
+                            <Suspense fallback={<CardLoader />}>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
                                     <thead>
                                         <tr className="border-b border-gray-200 dark:border-gray-700">
                                             <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>
@@ -1081,11 +1198,11 @@ const ServicesManager = () => {
                                                                 whileHover={{ scale: 1.1 }}
                                                                 whileTap={{ scale: 0.9 }}
                                                                 onClick={() => handleDeleteService(service.documentId)}
-                                                                disabled={deletingId === service.documentId}
-                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50"
+                                                                disabled={isDeleting && deletingServiceId === service.documentId}
+                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                                             >
-                                                                {deletingId === service.documentId ? (
-                                                                    <InlineLoader size="small" />
+                                                                {isDeleting && deletingServiceId === service.documentId ? (
+                                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
                                                                 ) : (
                                                                     <Trash2 className="w-4 h-4" />
                                                                 )}
@@ -1097,7 +1214,8 @@ const ServicesManager = () => {
                                         </AnimatePresence>
                                     </tbody>
                                 </table>
-                            </div>
+                                </div>
+                            </Suspense>
                         )}
                     </CardContent>
                 </Card>
@@ -1374,7 +1492,7 @@ const ServicesManager = () => {
                                     )}
 
                                     {/* عرض الصور القديمة مع إمكانية الحذف */}
-                                    {editingService && existingMedia.images?.length > 0 && (
+                                    {existingMedia.images?.length > 0 && (
                                         <div className="mt-3 flex flex-wrap">
                                             {existingMedia.images.map((img) => (
                                                 <ImageWithDelete
@@ -1421,7 +1539,7 @@ const ServicesManager = () => {
                                     )}
 
                                     {/* عرض الأيقونة القديمة */}
-                                    {editingService && existingMedia.icon && !formData.ServiceIcon && (
+                                    {existingMedia.icon && !formData.ServiceIcon && (
                                         <div className="mt-3">
                                             <ImageWithDelete
                                                 image={existingMedia.icon}

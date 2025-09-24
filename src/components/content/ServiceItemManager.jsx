@@ -35,9 +35,7 @@ import { NotificationContainer } from '../ui/NotificationContainer';
 
 import { getApiUrl } from '../../config/api';
 
-// Use environment variable for API base URL
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:1337';
-console.log("API_BASE:", API_BASE);
+// Use API configuration for base URL
 
 const ServiceItemManager = () => {
   const { t, language } = useLanguage();
@@ -138,7 +136,7 @@ const ServiceItemManager = () => {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/service-items?populate=*&locale=${lang}`
+        `${getApiUrl()}/service-items?populate=*&locale=${lang}`
       );
       console.log("response", response);
 
@@ -206,7 +204,7 @@ const ServiceItemManager = () => {
     if (lang === 'ar') {
       try {
         const response = await fetch(
-          `${API_BASE}/api/service-items?locale=en&populate=imgItems`,
+          `${getApiUrl()}/service-items?locale=en&populate=imgItems`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -336,13 +334,27 @@ const ServiceItemManager = () => {
         });
 
         if ([...uploadFormData].length > 0) {
-          const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${TOKEN}` },
-            body: uploadFormData,
-          });
-          await checkResponse(uploadResponse);
-          uploadedFiles = await uploadResponse.json();
+          // إضافة timeout للرفع
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 ثانية للرفع
+          
+          try {
+            const uploadResponse = await fetch(`${getApiUrl()}/upload`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${TOKEN}` },
+              body: uploadFormData,
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            await checkResponse(uploadResponse);
+            uploadedFiles = await uploadResponse.json();
+          } catch (uploadError) {
+            clearTimeout(timeoutId);
+            if (uploadError.name === 'AbortError') {
+              throw new Error('Upload timeout - please try again');
+            }
+            throw uploadError;
+          }
         }
       }
 
@@ -366,7 +378,7 @@ const ServiceItemManager = () => {
             if (!isNaN(serviceId)) finalDataEn.data.service_ajwain = serviceId;
           }
 
-          const enResp = await fetch(`${API_BASE}/api/service-items?locale=en`, {
+          const enResp = await fetch(`${getApiUrl()}/service-items?locale=en`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -393,7 +405,7 @@ const ServiceItemManager = () => {
           }
 
           const arResp = await fetch(
-            `${API_BASE}/api/service-items/${selectedEnglishDocumentId}?locale=ar-SA`,
+            `${getApiUrl()}/service-items/${selectedEnglishDocumentId}?locale=ar-SA`,
             {
               method: "PUT",
               headers: {
@@ -414,7 +426,7 @@ const ServiceItemManager = () => {
           const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
 
           const response = await fetch(
-            `${API_BASE}/api/service-items/${documentId}?locale=${locale}`, {
+            `${getApiUrl()}/service-items/${documentId}?locale=${locale}`, {
               method: "PUT",
               headers: {
                 "Content-Type": "application/json",
@@ -466,7 +478,25 @@ const ServiceItemManager = () => {
       toast.success(language === 'ar' ? "تم حفظ العنصر بنجاح! 🎉" : "Awesome! Your item has been saved successfully! 🎉");
     } catch (error) {
       console.error("Error saving service item:", error);
-      toast.error(language === 'ar' ? "عذراً، حدث خطأ أثناء الحفظ. يرجى المحاولة مرة أخرى." : "Oops! Something went wrong while saving. Please try again 🤗");
+      
+      // معالجة أفضل للأخطاء
+      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+        toast.error(language === 'ar' 
+          ? "🔌 مشكلة في الاتصال بالسيرفر. يرجى المحاولة مرة أخرى" 
+          : "🔌 Connection issue. Please try again");
+      } else if (error.message.includes('CORS') || error.message.includes('blocked by CORS policy')) {
+        toast.error(language === 'ar' 
+          ? "🚫 مشكلة في الصلاحيات. يرجى مراجعة إعدادات السيرفر" 
+          : "🚫 CORS issue. Please check server settings");
+      } else if (error.message.includes('Upload timeout')) {
+        toast.error(language === 'ar' 
+          ? "⏰ انتهت مهلة رفع الملفات. يرجى المحاولة مرة أخرى" 
+          : "⏰ Upload timeout. Please try again");
+      } else {
+        toast.error(language === 'ar' 
+          ? "❌ عذراً، حدث خطأ أثناء الحفظ. يرجى المحاولة مرة أخرى" 
+          : "❌ Oops! Something went wrong while saving. Please try again");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -498,7 +528,7 @@ const ServiceItemManager = () => {
         return;
       }
 
-      const response = await fetch(`${API_BASE}/api/service-items/${documentId}`, {
+      const response = await fetch(`${getApiUrl()}/service-items/${documentId}`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -537,7 +567,7 @@ const ServiceItemManager = () => {
       return url;
     }
 
-    return `${API_BASE}${url}`;
+    return `${getApiUrl().replace('/api', '')}${url}`;
   };
 
   const ImageWithDelete = ({ image, onRemove, isExisting = false }) => {
@@ -626,7 +656,7 @@ const ServiceItemManager = () => {
         if (!rawUrl) return null;
         return {
           id: img.id,
-          url: rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`,
+          url: rawUrl.startsWith("http") ? rawUrl : `${getApiUrl().replace('/api', '')}${rawUrl}`,
           name: img.attributes?.name,
         };
       }).filter(Boolean);
@@ -635,7 +665,7 @@ const ServiceItemManager = () => {
       if (!img.url) return null;
       return {
         id: img.id,
-        url: img.url.startsWith("http") ? img.url : `${API_BASE}${img.url}`,
+        url: img.url.startsWith("http") ? img.url : `${getApiUrl().replace('/api', '')}${img.url}`,
         name: img.name,
       };
     }).filter(Boolean);

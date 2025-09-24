@@ -9,8 +9,8 @@ export default function UploadForm() {
   const [icon, setIcon] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // هنا غيري URL على حسب السيرفر عندك
-  const STRAPI_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || "http://localhost:1337";
+  // استخدام API configuration
+  const STRAPI_URL = getApiUrl().replace('/api', '');
   const API_TOKEN = "PUT_YOUR_API_TOKEN_HERE"; // خلي بالك لازم يكون معاه صلاحيات Create & Upload
 
   const handleSubmit = async (e) => {

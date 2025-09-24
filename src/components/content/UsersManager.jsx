@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,14 +39,19 @@ const UsersManager = () => {
   })
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deletingUserId, setDeletingUserId] = useState(null)
 
   // دالة جلب المستخدمين من API
   const fetchUsers = async () => {
     try {
+      setIsLoading(true);
       const token = localStorage.getItem('token'); // الحصول على التوكن من Local Storage
 
       if (!token) {
         console.error("No authentication token found.");
+        setIsLoading(false);
         return;
       }
 
@@ -68,6 +73,8 @@ const UsersManager = () => {
     } catch (error) {
       console.error("Failed to fetch users:", error);
       showErrorAlert(t('fetch_users_error'));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -88,24 +95,36 @@ const UsersManager = () => {
 
     // التحقق من اسم المستخدم
     if (!formData.username.trim()) {
-      newErrors.username = t('username_required')
+      newErrors.username = t('username_required') || 'Username is required'
+    } else if (formData.username.trim().length < 3) {
+      newErrors.username = t('username_too_short') || 'Username must be at least 3 characters'
+    } else if (formData.username.trim().length > 20) {
+      newErrors.username = t('username_too_long') || 'Username must be less than 20 characters'
+    } else if (!/^[a-zA-Z0-9_]+$/.test(formData.username.trim())) {
+      newErrors.username = t('username_invalid_chars') || 'Username can only contain letters, numbers, and underscores'
     }
 
     // التحقق من البريد الإلكتروني
     if (!formData.email.trim()) {
-      newErrors.email = t('email_required')
+      newErrors.email = t('email_required') || 'Email is required'
     } else if (!isValidEmail(formData.email)) {
-      newErrors.email = t('invalid_email')
+      newErrors.email = t('invalid_email') || 'Please enter a valid email address'
+    } else if (!isEmailUnique(formData.email)) {
+      newErrors.email = t('email_already_exists') || 'This email is already in use'
     }
 
-    // التحقق من كلمة المرور (فقط عند إضافة مستخدم جديد)
+    // التحقق من كلمة المرور
     if (!editingUser && !formData.password.trim()) {
-      newErrors.password = t('password_required')
+      newErrors.password = t('password_required') || 'Password is required'
+    } else if (!editingUser && formData.password.trim().length < 6) {
+      newErrors.password = t('password_too_short') || 'Password must be at least 6 characters'
+    } else if (formData.password.trim() && formData.password.trim().length < 6) {
+      newErrors.password = t('password_too_short') || 'Password must be at least 6 characters'
     }
 
     // التحقق من الدور
     if (!formData.role) {
-      newErrors.role = t('role_required')
+      newErrors.role = t('role_required') || 'Role is required'
     }
 
     setErrors(newErrors)
@@ -197,16 +216,10 @@ const UsersManager = () => {
 
   const handleSaveUser = async () => {
     setIsSubmitting(true)
+    setErrors({}) // مسح الأخطاء السابقة
     
     // التحقق من صحة البيانات
     if (!validateForm()) {
-      setIsSubmitting(false)
-      return
-    }
-
-    // التحقق من عدم تكرار البريد الإلكتروني
-    if (!isEmailUnique(formData.email)) {
-      setErrors({...errors, email: t('email_already_exists')})
       setIsSubmitting(false)
       return
     }
@@ -307,6 +320,9 @@ const UsersManager = () => {
   const handleDeleteUser = async (id) => {
     showConfirmAlert(t('delete_user_confirm'), async () => {
       try {
+        setIsDeleting(true);
+        setDeletingUserId(id);
+        
         const token = localStorage.getItem('token');
         if (!token) {
           console.error("No authentication token found.");
@@ -333,6 +349,9 @@ const UsersManager = () => {
       } catch (error) {
         console.error("API error during deletion:", error);
         showErrorAlert(t('delete_user_error'));
+      } finally {
+        setIsDeleting(false);
+        setDeletingUserId(null);
       }
     });
   };
@@ -412,62 +431,79 @@ const UsersManager = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('username')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('email')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('role')}</th>
-                    <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 text-center`}>{t('actions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <AnimatePresence>
-                    {filteredUsers.map((user, index) => (
-                      <motion.tr
-                        key={user.id}
-                        variants={tableRowVariants}
-                        initial="hidden"
-                        animate="visible"
-                        exit="hidden"
-                        whileHover="hover"
-                        transition={{ delay: index * 0.1 }}
-                        className="border-b border-gray-100 dark:border-gray-700"
-                      >
-                        <td className="py-4 px-4">{user.username}</td>
-                        <td className="py-4 px-4">{user.email}</td>
-                        <td className="py-4 px-4">
-                          <Badge variant="outline" className="bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">
-                            {user.role?.name || "N/A"}
-                          </Badge>
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="flex items-center justify-center space-x-2">
-                            <motion.button
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => handleEditUser(user)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors dark:hover:bg-gray-700"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </motion.button>
-                            <motion.button
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => handleDeleteUser(user.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </motion.button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </div>
+            <Suspense fallback={<CardLoader />}>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600 dark:text-gray-400">{t('loading_users') || 'Loading users...'}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200 dark:border-gray-700">
+                        <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('username')}</th>
+                        <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('email')}</th>
+                        <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 ${language === 'ar' ? 'text-right' : 'text-left'}`}>{t('role')}</th>
+                        <th className={`py-3 px-4 font-medium text-gray-700 dark:text-gray-300 text-center`}>{t('actions')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <AnimatePresence>
+                        {filteredUsers.map((user, index) => (
+                          <motion.tr
+                            key={user.id}
+                            variants={tableRowVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="hidden"
+                            whileHover="hover"
+                            transition={{ delay: index * 0.1 }}
+                            className="border-b border-gray-100 dark:border-gray-700"
+                          >
+                            <td className="py-4 px-4">{user.username}</td>
+                            <td className="py-4 px-4">{user.email}</td>
+                            <td className="py-4 px-4">
+                              <Badge variant="outline" className="bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">
+                                {user.role?.name || "N/A"}
+                              </Badge>
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="flex items-center justify-center space-x-2">
+                                <motion.button
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => handleEditUser(user)}
+                                  disabled={isSubmitting || isDeleting}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </motion.button>
+                                <motion.button
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  disabled={isSubmitting || isDeleting}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {isDeleting && deletingUserId === user.id ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                </motion.button>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </AnimatePresence>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Suspense>
           </CardContent>
         </Card>
       </motion.div>
@@ -581,8 +617,17 @@ const UsersManager = () => {
                     disabled={isSubmitting}
                     className="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-700 dark:hover:bg-blue-800 disabled:opacity-50"
                   >
-                    <Save className="w-4 h-4 mr-2" />
-                    {isSubmitting ? t('saving') : t('save_user')}
+                    {isSubmitting ? (
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        {t('saving') || 'Saving...'}
+                      </div>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        {t('save_user') || 'Save User'}
+                      </>
+                    )}
                   </Button>
                 </motion.div>
               </div>
