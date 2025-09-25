@@ -29,7 +29,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
-import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+// import { SuccessAlert, ErrorAlert } from '../ui/Alert';
 import { useNotifications } from '../../hooks/useNotifications';
 import { NotificationContainer } from '../ui/NotificationContainer';
 

@@ -22,7 +22,7 @@ import {
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { PageLoader, InlineLoader, CardLoader, ButtonLoader } from '../ui/Loader';
-import { SuccessAlert, ErrorAlert } from '../ui/Alert';
+// import { SuccessAlert, ErrorAlert } from '../ui/alert';
 import { useNotifications } from '../../hooks/useNotifications';
 import { NotificationContainer } from '../ui/NotificationContainer';
 
